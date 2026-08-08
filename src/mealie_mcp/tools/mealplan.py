@@ -111,7 +111,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         return shape.meal_plan_entry(entry)
 
     @mcp.tool
-    async def delete_meal_plan_entry(entry_id: str) -> dict:
+    async def delete_meal_plan_entry(entry_id: str | int) -> dict:
         """Remove one planned meal by its entry_id (from get_meal_plan)."""
         await get_client().request(
             "DELETE",
