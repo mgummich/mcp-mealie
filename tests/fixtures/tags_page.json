@@ -1,0 +1,50 @@
+{
+  "page": 1,
+  "per_page": 50,
+  "total": 8,
+  "total_pages": 1,
+  "items": [
+    {
+      "id": "2d2da887-e5fc-4e2d-99ca-b7edf781d256",
+      "name": "Roast",
+      "slug": "roast"
+    },
+    {
+      "id": "4f1e283b-4556-4d86-b364-05fb20e63e9c",
+      "name": "Dinner",
+      "slug": "dinner"
+    },
+    {
+      "id": "95cdb2ae-ea0c-430b-bb72-3fe76a646b11",
+      "name": "Gamma",
+      "slug": "gamma"
+    },
+    {
+      "id": "31d9846d-5357-4dd5-b0f8-ebfeaf231a37",
+      "name": "Beta",
+      "slug": "beta"
+    },
+    {
+      "id": "dadb0d38-5951-4060-9b02-844583a22d76",
+      "name": "Alpha",
+      "slug": "alpha"
+    },
+    {
+      "id": "e4a7e763-893c-45c4-8826-d104a489d49a",
+      "name": "Quick",
+      "slug": "quick"
+    },
+    {
+      "id": "ed7c1d75-dba2-45e8-83cc-5db699ace573",
+      "name": "Breakfast",
+      "slug": "breakfast"
+    },
+    {
+      "id": "ff86d579-1c38-4925-b048-7d81dc62712a",
+      "name": "Smoke Test",
+      "slug": "smoke-test"
+    }
+  ],
+  "next": null,
+  "previous": null
+}

@@ -1,0 +1,129 @@
+{
+  "id": "59f51bc9-08c0-410a-84a2-58e31a7e9ed0",
+  "userId": "8cf0e08d-0eb0-4168-90e7-11b2cd261663",
+  "householdId": "26a31514-8ced-4c69-a91a-15160de2ba9b",
+  "groupId": "da42bd45-bc92-4c41-9672-0f312085364b",
+  "name": "Fixture Roast Chicken",
+  "slug": "fixture-roast-chicken",
+  "image": null,
+  "recipeServings": 0.0,
+  "recipeYieldQuantity": 0.0,
+  "recipeYield": "4 servings",
+  "totalTime": "1 hour 15 minutes",
+  "prepTime": "15 minutes",
+  "cookTime": "1 hour",
+  "performTime": null,
+  "description": "A whole bird, roasted.",
+  "recipeCategory": [
+    {
+      "id": "858323e9-a4b6-453c-8cf7-e2b5941c9af6",
+      "name": "Main Course",
+      "slug": "main-course"
+    }
+  ],
+  "tags": [
+    {
+      "id": "2d2da887-e5fc-4e2d-99ca-b7edf781d256",
+      "name": "Roast",
+      "slug": "roast"
+    },
+    {
+      "id": "4f1e283b-4556-4d86-b364-05fb20e63e9c",
+      "name": "Dinner",
+      "slug": "dinner"
+    }
+  ],
+  "tools": [],
+  "rating": null,
+  "orgURL": "https://example.com/roast-chicken",
+  "dateAdded": "2026-08-08",
+  "dateUpdated": "2026-08-08T23:16:13.086434Z",
+  "createdAt": "2026-08-08T23:16:12.988843Z",
+  "updatedAt": "2026-08-08T23:16:13.089144Z",
+  "lastMade": null,
+  "recipeIngredient": [
+    {
+      "quantity": 1.0,
+      "unit": null,
+      "food": null,
+      "note": "whole chicken",
+      "isFood": false,
+      "disableAmount": true,
+      "display": "whole chicken",
+      "title": null,
+      "originalText": "1 whole chicken",
+      "referenceId": "ad116e38-ba79-4eec-b7f1-7fefb37de4c2"
+    },
+    {
+      "quantity": 2.0,
+      "unit": null,
+      "food": null,
+      "note": "tablespoon olive oil",
+      "isFood": false,
+      "disableAmount": true,
+      "display": "2 tablespoon olive oil",
+      "title": null,
+      "originalText": "2 tbsp olive oil",
+      "referenceId": "9b4885c7-5715-4632-822b-098b40e9d476"
+    },
+    {
+      "quantity": 0.0,
+      "unit": null,
+      "food": null,
+      "note": "salt to taste",
+      "isFood": false,
+      "disableAmount": true,
+      "display": "salt to taste",
+      "title": null,
+      "originalText": "salt to taste",
+      "referenceId": "476167c4-1a45-4090-8089-2d87b118dfa3"
+    }
+  ],
+  "recipeInstructions": [
+    {
+      "id": "349e7ec3-5152-4b47-9ff8-a371eab7bb9b",
+      "title": "",
+      "summary": null,
+      "text": "Season the bird.",
+      "ingredientReferences": []
+    },
+    {
+      "id": "6060eb43-748a-4c71-a614-629238a3ed12",
+      "title": "",
+      "summary": null,
+      "text": "Roast at 200C.",
+      "ingredientReferences": []
+    }
+  ],
+  "nutrition": {
+    "calories": null,
+    "carbohydrateContent": null,
+    "cholesterolContent": null,
+    "fatContent": null,
+    "fiberContent": null,
+    "proteinContent": null,
+    "saturatedFatContent": null,
+    "sodiumContent": null,
+    "sugarContent": null,
+    "transFatContent": null,
+    "unsaturatedFatContent": null
+  },
+  "settings": {
+    "public": false,
+    "showNutrition": false,
+    "showAssets": false,
+    "landscapeView": false,
+    "disableComments": false,
+    "disableAmount": true,
+    "locked": false
+  },
+  "assets": [],
+  "notes": [
+    {
+      "title": "Tip",
+      "text": "Rest it for 10 minutes."
+    }
+  ],
+  "extras": {},
+  "comments": []
+}

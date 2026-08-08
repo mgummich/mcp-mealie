@@ -1,0 +1,119 @@
+{
+  "page": 1,
+  "per_page": 5,
+  "total": 3,
+  "total_pages": 1,
+  "items": [
+    {
+      "id": "59f51bc9-08c0-410a-84a2-58e31a7e9ed0",
+      "userId": "8cf0e08d-0eb0-4168-90e7-11b2cd261663",
+      "householdId": "26a31514-8ced-4c69-a91a-15160de2ba9b",
+      "groupId": "da42bd45-bc92-4c41-9672-0f312085364b",
+      "name": "Fixture Roast Chicken",
+      "slug": "fixture-roast-chicken",
+      "image": null,
+      "recipeServings": 0.0,
+      "recipeYieldQuantity": 0.0,
+      "recipeYield": "4 servings",
+      "totalTime": "1 hour 15 minutes",
+      "prepTime": "15 minutes",
+      "cookTime": "1 hour",
+      "performTime": null,
+      "description": "A whole bird, roasted.",
+      "recipeCategory": [
+        {
+          "id": "858323e9-a4b6-453c-8cf7-e2b5941c9af6",
+          "name": "Main Course",
+          "slug": "main-course"
+        }
+      ],
+      "tags": [
+        {
+          "id": "4f1e283b-4556-4d86-b364-05fb20e63e9c",
+          "name": "Dinner",
+          "slug": "dinner"
+        },
+        {
+          "id": "2d2da887-e5fc-4e2d-99ca-b7edf781d256",
+          "name": "Roast",
+          "slug": "roast"
+        }
+      ],
+      "tools": [],
+      "rating": null,
+      "orgURL": "https://example.com/roast-chicken",
+      "dateAdded": "2026-08-08",
+      "dateUpdated": "2026-08-08T23:16:13.086434+00:00",
+      "createdAt": "2026-08-08T23:16:12.988843+00:00",
+      "updatedAt": "2026-08-08T23:16:13.089144+00:00",
+      "lastMade": null
+    },
+    {
+      "id": "76aa6cf8-d5b4-44eb-8f7c-7029f13c4031",
+      "userId": "8cf0e08d-0eb0-4168-90e7-11b2cd261663",
+      "householdId": "26a31514-8ced-4c69-a91a-15160de2ba9b",
+      "groupId": "da42bd45-bc92-4c41-9672-0f312085364b",
+      "name": "Smoke Test Pancakes (1)",
+      "slug": "smoke-test-pancakes-1",
+      "image": null,
+      "recipeServings": 0.0,
+      "recipeYieldQuantity": 0.0,
+      "recipeYield": "4 servings",
+      "totalTime": null,
+      "prepTime": null,
+      "cookTime": null,
+      "performTime": null,
+      "description": "Created by scripts/smoke.py",
+      "recipeCategory": [],
+      "tags": [
+        {
+          "id": "ff86d579-1c38-4925-b048-7d81dc62712a",
+          "name": "Smoke Test",
+          "slug": "smoke-test"
+        },
+        {
+          "id": "ed7c1d75-dba2-45e8-83cc-5db699ace573",
+          "name": "Breakfast",
+          "slug": "breakfast"
+        }
+      ],
+      "tools": [],
+      "rating": null,
+      "orgURL": null,
+      "dateAdded": "2026-08-08",
+      "dateUpdated": "2026-08-08T23:12:50.082919+00:00",
+      "createdAt": "2026-08-08T23:12:50.022480+00:00",
+      "updatedAt": "2026-08-08T23:12:50.084276+00:00",
+      "lastMade": null
+    },
+    {
+      "id": "131b5cc1-a3eb-409f-bd99-f74a36c0bda8",
+      "userId": "8cf0e08d-0eb0-4168-90e7-11b2cd261663",
+      "householdId": "26a31514-8ced-4c69-a91a-15160de2ba9b",
+      "groupId": "da42bd45-bc92-4c41-9672-0f312085364b",
+      "name": "Smoke Test Pancakes",
+      "slug": "smoke-test-pancakes",
+      "image": null,
+      "recipeServings": 0.0,
+      "recipeYieldQuantity": 0.0,
+      "recipeYield": null,
+      "totalTime": null,
+      "prepTime": null,
+      "cookTime": null,
+      "performTime": null,
+      "description": "",
+      "recipeCategory": [],
+      "tags": [],
+      "tools": [],
+      "rating": null,
+      "orgURL": null,
+      "dateAdded": "2026-08-08",
+      "dateUpdated": "2026-08-08T23:11:54.445012+00:00",
+      "createdAt": "2026-08-08T23:11:54.446107+00:00",
+      "updatedAt": "2026-08-08T23:11:54.446107+00:00",
+      "lastMade": null
+    }
+  ],
+  "next": null,
+  "previous": null
+}

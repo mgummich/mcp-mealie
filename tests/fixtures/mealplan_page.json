@@ -1,0 +1,65 @@
+{
+  "page": 1,
+  "per_page": 50,
+  "total": 1,
+  "total_pages": 1,
+  "items": [
+    {
+      "date": "2026-08-10",
+      "entryType": "dinner",
+      "title": "",
+      "text": "",
+      "recipeId": "59f51bc9-08c0-410a-84a2-58e31a7e9ed0",
+      "id": 1,
+      "groupId": "da42bd45-bc92-4c41-9672-0f312085364b",
+      "userId": "8cf0e08d-0eb0-4168-90e7-11b2cd261663",
+      "householdId": "26a31514-8ced-4c69-a91a-15160de2ba9b",
+      "recipe": {
+        "id": "59f51bc9-08c0-410a-84a2-58e31a7e9ed0",
+        "userId": "8cf0e08d-0eb0-4168-90e7-11b2cd261663",
+        "householdId": "26a31514-8ced-4c69-a91a-15160de2ba9b",
+        "groupId": "da42bd45-bc92-4c41-9672-0f312085364b",
+        "name": "Fixture Roast Chicken",
+        "slug": "fixture-roast-chicken",
+        "image": null,
+        "recipeServings": 0.0,
+        "recipeYieldQuantity": 0.0,
+        "recipeYield": "4 servings",
+        "totalTime": "1 hour 15 minutes",
+        "prepTime": "15 minutes",
+        "cookTime": "1 hour",
+        "performTime": null,
+        "description": "A whole bird, roasted.",
+        "recipeCategory": [
+          {
+            "id": "858323e9-a4b6-453c-8cf7-e2b5941c9af6",
+            "name": "Main Course",
+            "slug": "main-course"
+          }
+        ],
+        "tags": [
+          {
+            "id": "4f1e283b-4556-4d86-b364-05fb20e63e9c",
+            "name": "Dinner",
+            "slug": "dinner"
+          },
+          {
+            "id": "2d2da887-e5fc-4e2d-99ca-b7edf781d256",
+            "name": "Roast",
+            "slug": "roast"
+          }
+        ],
+        "tools": [],
+        "rating": null,
+        "orgURL": "https://example.com/roast-chicken",
+        "dateAdded": "2026-08-08",
+        "dateUpdated": "2026-08-08T23:16:13.086434Z",
+        "createdAt": "2026-08-08T23:16:12.988843Z",
+        "updatedAt": "2026-08-08T23:16:13.089144Z",
+        "lastMade": null
+      }
+    }
+  ],
+  "next": null,
+  "previous": null
+}

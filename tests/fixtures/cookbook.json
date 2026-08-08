@@ -1,0 +1,25 @@
+{
+  "name": "Fixture Book",
+  "description": "",
+  "slug": "fixture-book",
+  "position": 1,
+  "public": false,
+  "queryFilterString": "tags.name IN [\"Dinner\"]",
+  "groupId": "da42bd45-bc92-4c41-9672-0f312085364b",
+  "householdId": "26a31514-8ced-4c69-a91a-15160de2ba9b",
+  "id": "874249d9-0943-4f81-908b-b6010fff579e",
+  "queryFilter": {
+    "parts": [
+      {
+        "leftParenthesis": null,
+        "rightParenthesis": null,
+        "logicalOperator": null,
+        "attributeName": "tags.name",
+        "relationalOperator": "IN",
+        "value": [
+          "Dinner"
+        ]
+      }
+    ]
+  }
+}

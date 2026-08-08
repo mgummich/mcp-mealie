@@ -1,0 +1,88 @@
+[
+  {
+    "input": "2 cups flour",
+    "confidence": {
+      "average": 0.9996316666666667,
+      "comment": 0.0,
+      "name": null,
+      "unit": 0.999978,
+      "quantity": 1.0,
+      "food": 0.998939
+    },
+    "ingredient": {
+      "quantity": 2.0,
+      "unit": {
+        "id": null,
+        "name": "cup",
+        "pluralName": null,
+        "description": "",
+        "extras": {},
+        "fraction": true,
+        "abbreviation": "",
+        "pluralAbbreviation": "",
+        "useAbbreviation": false,
+        "aliases": []
+      },
+      "food": {
+        "id": null,
+        "name": "flour",
+        "pluralName": null,
+        "description": "",
+        "extras": {},
+        "labelId": null,
+        "aliases": [],
+        "householdsWithIngredientFood": []
+      },
+      "note": "",
+      "isFood": true,
+      "disableAmount": false,
+      "display": "2 cup flour",
+      "title": "",
+      "originalText": null,
+      "referenceId": "7d842f4c-a875-4cde-b6bc-a9f1dc8867bf"
+    }
+  },
+  {
+    "input": "a pinch of salt",
+    "confidence": {
+      "average": 0.9066185,
+      "comment": 0.0,
+      "name": null,
+      "unit": 0.843206,
+      "quantity": 0.843,
+      "food": 0.970031
+    },
+    "ingredient": {
+      "quantity": 0.0,
+      "unit": {
+        "id": null,
+        "name": "pinch",
+        "pluralName": null,
+        "description": "",
+        "extras": {},
+        "fraction": true,
+        "abbreviation": "",
+        "pluralAbbreviation": "",
+        "useAbbreviation": false,
+        "aliases": []
+      },
+      "food": {
+        "id": null,
+        "name": "salt",
+        "pluralName": null,
+        "description": "",
+        "extras": {},
+        "labelId": null,
+        "aliases": [],
+        "householdsWithIngredientFood": []
+      },
+      "note": "",
+      "isFood": true,
+      "disableAmount": false,
+      "display": "salt",
+      "title": "",
+      "originalText": null,
+      "referenceId": "138d79cd-ba5c-4540-92a9-246ca164a519"
+    }
+  }
+]
