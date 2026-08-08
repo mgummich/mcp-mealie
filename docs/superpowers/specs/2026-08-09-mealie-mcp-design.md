@@ -1,4 +1,4 @@
-# mealie-mcp — Design
+# mcp-mealie — Design
 
 **Date:** 2026-08-09
 **Status:** Approved
@@ -10,6 +10,18 @@ self-hosted [Mealie](https://mealie.io) instance: recipes, meal plans, and
 cookbooks. Optimized for agent consumption — a flat, verb-first tool surface
 with trimmed, token-efficient responses — and for broad client compatibility
 via stdio transport.
+
+### Relationship to existing work
+
+`mealie-mcp` on PyPI (Knuckles-Team/mealie-mcp) already exists. It is generated
+from Mealie's OpenAPI specification: 247 one-per-endpoint tools in verbose mode,
+or 10 action-routed umbrella tools in condensed mode, with no response trimming
+and no workflow guidance.
+
+This project takes the opposite approach. Its value is in what it does *not*
+return: a curated tool set, aggressively trimmed responses, and a bundled skill
+describing real workflows. It is a distinct product, not a fork, and ships under
+the name `mcp-mealie`.
 
 ## Scope
 
@@ -25,8 +37,9 @@ exist in the Mealie API and were reviewed; they were deliberately deferred.
 ## Runtime and transport
 
 Python ≥3.11 with [FastMCP](https://github.com/jlowin/fastmcp), stdio transport
-only. Distributed on PyPI and run via `uvx mealie-mcp` — no clone or virtualenv
-required by users.
+only. Distributed on PyPI as `mcp-mealie` and run via `uvx mcp-mealie` — no
+clone or virtualenv required by users. The import package is `mealie_mcp`; a
+dist-name/import-name mismatch is idiomatic in Python and reads better in code.
 
 Rationale: FastMCP reduces each tool to a decorated function, which keeps the
 diff small for a surface this wide. Stdio is supported by every MCP client
@@ -37,7 +50,16 @@ when embedding the server in a Node application, which is not a goal here.
 HTTP transport and a Docker image are deferred until someone needs remote
 hosting.
 
-## Authentication
+## Target Mealie version
+
+Stable Mealie 2.x, verified against a pinned Docker tag. Mealie 1.x is not
+supported — it lacks the `/api/households/*` layer entirely, and no
+compatibility shims will be written.
+
+At startup the server reads `GET /api/app/about` once and logs the detected
+version to stderr.
+
+## Authentication and configuration
 
 API token only, supplied through environment variables:
 
@@ -46,19 +68,33 @@ API token only, supplied through environment variables:
 | `MEALIE_URL` | yes | Base URL of the Mealie instance |
 | `MEALIE_API_TOKEN` | yes | Long-lived API token from Mealie's user settings |
 | `MEALIE_READ_ONLY` | no | When true, write tools are not registered |
+| `MEALIE_VERIFY_SSL` | no | Set false for self-signed certs; defaults to true |
 
 Username/password login is not supported. Mealie 2.x scopes API tokens to a
 household, so no household parameter is needed on any tool — the token decides.
+
+`MEALIE_VERIFY_SSL=false` exists because self-hosted instances frequently sit
+behind an internal CA or self-signed certificate, and the alternative is users
+hitting an opaque SSL failure on first connect. It is documented as a
+homelab-only escape hatch.
+
+### Startup validation
+
+The server fails fast: missing or malformed `MEALIE_URL` / `MEALIE_API_TOKEN`
+produces a clear stderr message and a non-zero exit. It then probes
+`GET /api/app/about` to confirm the token actually authenticates, reusing the
+request that logs the version. A server that starts cleanly and then fails every
+call is worse inside an IDE than one that visibly refuses to start.
 
 ## Architecture
 
 ```
 mealie_mcp/
   __init__.py
-  config.py        # env parsing: MEALIE_URL, MEALIE_API_TOKEN, MEALIE_READ_ONLY
-  client.py        # httpx.AsyncClient wrapper: auth header, base URL, error mapping
+  config.py        # env parsing and validation
+  client.py        # httpx.AsyncClient wrapper: auth, base URL, error mapping, slug cache
   shape.py         # pure functions: Mealie JSON -> trimmed dicts
-  server.py        # FastMCP instance, tool registration, main()
+  server.py        # FastMCP instance, tool registration, startup probe, main()
   tools/
     recipes.py
     mealplan.py
@@ -84,9 +120,13 @@ models plus a codegen step in the build.
 
 ## Tool surface
 
-Eighteen flat tools, chosen over an action-dispatch design because
-fine-grained schemas are clearer to models. The one exception is taxonomy
-management, which is rare enough to group.
+Eighteen flat tools, chosen over an action-dispatch design because fine-grained
+schemas are clearer to models. The one exception is taxonomy management, which
+is rare enough to group.
+
+Tool names are unprefixed (`search_recipes`, not `mealie_search_recipes`). MCP
+clients already namespace tools by server, and a prefix taxes every tool
+description with tokens that buy nothing.
 
 ### Recipes (7)
 
@@ -94,10 +134,10 @@ management, which is rare enough to group.
 | --- | --- |
 | `search_recipes(query?, tags?, categories?, tools?, foods?, require_all?, page=1, limit=20)` | `GET /api/recipes` |
 | `get_recipe(slug, full=false)` | `GET /api/recipes/{slug}` |
-| `create_recipe(...)` | `POST /api/recipes` |
+| `create_recipe(...)` | `POST /api/recipes` then `PATCH /api/recipes/{slug}` |
 | `update_recipe(slug, ...)` | `PATCH /api/recipes/{slug}` |
 | `delete_recipe(slug, confirm_slug)` | `DELETE /api/recipes/{slug}` |
-| `import_recipe_from_url(url)` | `POST /api/recipes/create/url` |
+| `import_recipe_from_url(url, include_tags=true, include_categories=true)` | `POST /api/recipes/create/url` |
 | `suggest_recipes(foods?, tools?, max_missing_foods=2, limit=10)` | `GET /api/recipes/suggestions` |
 
 `suggest_recipes` answers "what can I cook with what's in the fridge" — Mealie
@@ -106,6 +146,9 @@ filter over search results.
 
 Search filtering happens server-side. Returning fifty recipes for the model to
 filter wastes tokens the API can save.
+
+`import_recipe_from_url` returns a bare slug string from Mealie; the tool
+follows up with a `get_recipe` shaping pass so the model sees what was imported.
 
 ### Meal plan (5)
 
@@ -145,9 +188,7 @@ models invent invalid filter syntax.
 | `parse_ingredients(lines[])` | `POST /api/parser/ingredients` |
 | `manage_taxonomy(resource, action, ...)` | `/api/foods`, `/api/units`, `/api/organizers/{tags,categories,tools}` |
 
-`parse_ingredients` turns free text into structured food/unit/quantity objects,
-so `create_recipe` can accept human-written ingredient lines instead of
-requiring the model to guess Mealie's ingredient schema.
+`parse_ingredients` turns free text into structured food/unit/quantity objects.
 
 `manage_taxonomy` takes `resource` ∈ foods | units | tags | categories | tools
 and `action` ∈ list | create | delete.
@@ -156,25 +197,87 @@ With `MEALIE_READ_ONLY=true`, nine tools remain registered: the three recipe
 reads, the two meal plan reads, the two cookbook reads, `parse_ingredients`
 (which mutates nothing), and `manage_taxonomy` restricted to `action="list"`.
 
+## Write semantics
+
+Mealie's write API has three sharp edges that the tools hide.
+
+### Recipe creation is two calls
+
+`POST /api/recipes` accepts `{name}` only and returns a bare slug string; all
+other content requires a follow-up `PATCH /api/recipes/{slug}`. `create_recipe`
+performs both, so the model spends one turn rather than two.
+
+If the PATCH fails after the POST succeeded, a stub recipe exists on the server.
+The raised error must name the created slug, so the stub is never silently
+orphaned.
+
+### Ingredients accept text or structure
+
+`create_recipe` accepts `recipe_ingredient` items that are either plain strings
+or structured objects. Strings are routed through `/api/parser/ingredients`
+first; dicts pass through untouched. The check is per item, with no extra
+parameter — a model writing from a user's "two cups flour, pinch of salt"
+produces strings, while a model that already called `parse_ingredients` produces
+dicts.
+
+In the string case, `create_recipe` costs up to three HTTP calls: parse, POST,
+PATCH.
+
+### Updates merge tags, replace bodies
+
+`PATCH` with `Recipe-Input` replaces list fields wholesale — there is no append.
+A naive `update_recipe(slug, tags=["Vegan"])` would silently erase every
+existing tag.
+
+`update_recipe` therefore reads before writing:
+
+- `tags` and `categories` **merge** with existing values by default.
+  `replace_tags=True` / `replace_categories=True` force a wipe.
+- `recipeIngredient` and `recipeInstructions` **replace**. Nobody appends half a
+  method, and merging steps would produce nonsense.
+
+The extra GET is cheap; silent data loss is the worst failure mode in this
+server.
+
 ## Response shaping
 
 Mealie recipe payloads include nutrition, assets, comments, settings,
 timestamps, and nested IDs — a single full recipe can cost 2–3k tokens.
 
-- **Detail** responses return curated fields: name, slug, description, yield,
-  prep/cook/total times, ingredients, instructions, tags, categories. Passing
-  `full=true` returns the raw payload.
-- **Search and list** responses are thinner still: slug, name, description.
-- **Pagination:** Mealie returns `{items, page, per_page, total}`. Tools return
-  `items` plus a single-line hint (`showing 20 of 143 — pass page=2`) rather
-  than the envelope. Default `perPage` is 20.
+**Detail** responses return: name, slug, description, yield, prep/cook/total
+times, ingredients, instructions, tags, categories, `orgURL` (source link),
+`rating`, and `notes`. Excluded: nutrition (bulky, usually empty), image (a URL
+the model cannot see), tools, and `lastMade`. Passing `full=true` returns the
+raw payload.
+
+**Search and list** responses are thinner still: slug, name, description.
+
+**Pagination:** Mealie returns `{items, page, per_page, total}`. Tools return
+`items` plus a single-line hint (`showing 20 of 143 — pass page=2`) rather than
+the envelope. Default `perPage` is 20.
 
 ## Identifiers
 
-Recipes are addressed by slug — slugs appear in search output and read well to
-a model. Meal plan entries, cookbooks, and taxonomy items are addressed by
-UUID. Parameter names state which is expected (`recipe_slug`, `entry_id`,
+Recipes are addressed by slug at the tool boundary — slugs appear in search
+output and read well to a model. Meal plan entries, cookbooks, and taxonomy
+items are addressed by UUID.
+
+`CreatePlanEntry` requires a `recipeId` UUID, not a slug. `add_meal_plan_entry`
+therefore resolves slug → UUID internally via `GET /api/recipes/{slug}`, and
+caches the mapping in the client for the process lifetime. Planning a week
+re-resolves the same handful of recipes repeatedly; without the cache a
+seven-entry plan costs fourteen requests. Slugs do not change often enough under
+a running process to justify expiry.
+
+Parameter names state which identifier is expected (`recipe_slug`, `entry_id`,
 `cookbook_id`).
+
+## Dates and timezones
+
+Mealie stores plain dates. The server runs on the user's own machine, so the
+host's local date is used to resolve "today". `get_todays_meals` echoes the date
+it resolved to in its response, making the rare mismatch visible rather than
+silent. `add_meal_plan_entry` takes explicit ISO dates — no inference.
 
 ## Safety
 
@@ -200,16 +303,24 @@ Mealie error bodies are never returned to the model.
 
 Request timeout is 15 seconds.
 
+Failures raise FastMCP's `ToolError` so clients render them as errors:
+authentication problems, unreachable servers, 404s, and read-only violations.
+Empty-but-valid results are *not* errors — "no recipes matched" is returned as
+ordinary content, because raising there makes models retry pointlessly.
+
 ## Testing
 
 - `shape.py` — unit tests against JSON fixtures captured from
-  `demo.mealie.io`. Pure functions, no network. This is the primary test
-  target, since shaping is where the logic concentrates.
+  `demo.mealie.io` and committed to the repo, with any user data sanitized.
+  Real captures carry the messy cases (nulls, empty nested arrays, `extras`)
+  that hand-written fixtures omit, and omitting them is exactly how shapers
+  break. If fixture drift becomes a problem, add
+  `scripts/capture_fixtures.py` against the pinned 2.x container.
 - `client.py` — tests using `respx` to mock httpx, covering the auth header,
-  each error-mapping branch, and the read-only guard.
+  each error-mapping branch, the slug cache, and the read-only guard.
 - `tools/*` — one smoke test per tool asserting registration and parameter
   schema.
-- `scripts/smoke.py` — runs the read tools against `demo.mealie.io` on demand.
+- `scripts/smoke.py` — runs the read tools against a live instance on demand.
   Not part of the automated suite; no live-Mealie tests in CI.
 
 ## Bundled skill
@@ -223,19 +334,23 @@ teach:
 - **Import and file a recipe** — `import_recipe_from_url`, then `update_recipe`
   to tag and categorize.
 - **Build a cookbook** — `queryFilterString` DSL patterns and examples.
-- **Author a recipe** — `parse_ingredients` on free text, then `create_recipe`.
+- **Author a recipe** — free-text ingredients straight into `create_recipe`, or
+  `parse_ingredients` first when the model wants to inspect the structure.
 
 MCP prompts were considered and rejected: client support is inconsistent, while
 a `SKILL.md` works natively in Claude Code and reads as documentation
 elsewhere.
 
-## Packaging
+## Packaging and licensing
 
-`pyproject.toml` with hatchling. Entry point:
-`mealie-mcp = mealie_mcp.server:main`.
+`pyproject.toml` with hatchling. Distribution name `mcp-mealie`, import package
+`mealie_mcp`, entry point `mcp-mealie = mealie_mcp.server:main`.
 
 Runtime dependencies: `fastmcp`, `httpx`. Development: `pytest`, `respx`,
 `ruff`.
+
+Licensed MIT, public repository. Mealie itself is AGPL, but this is a separate
+client communicating over HTTP — no derivation, no license inheritance.
 
 The README ships copy-paste configuration for Claude Code, Claude Desktop,
 Cursor, Windsurf, and Zed. All use the same stdio shape:
@@ -243,7 +358,7 @@ Cursor, Windsurf, and Zed. All use the same stdio shape:
 ```json
 {
   "command": "uvx",
-  "args": ["mealie-mcp"],
+  "args": ["mcp-mealie"],
   "env": {
     "MEALIE_URL": "https://mealie.example.com",
     "MEALIE_API_TOKEN": "..."
