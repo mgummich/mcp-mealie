@@ -156,6 +156,7 @@ def test_ingredient_keeps_resolved_food_objects():
 
 def test_ingredient_folds_unresolved_names_into_the_note():
     # IngredientFood requires an id; an unmatched food would otherwise 500.
+    # When nothing resolved, the source line reads better than "pinch saffron".
     payload = _normalize_ingredient(
         {"quantity": 1, "unit": {"name": "pinch"}, "food": {"name": "saffron"}},
         original="a pinch of saffron",
@@ -163,5 +164,76 @@ def test_ingredient_folds_unresolved_names_into_the_note():
 
     assert "food" not in payload
     assert "unit" not in payload
-    assert payload["note"] == "pinch saffron"
+    assert payload["note"] == "a pinch of saffron"
     assert payload["originalText"] == "a pinch of saffron"
+
+
+def test_ingredient_keeps_fragment_note_when_the_unit_resolved():
+    # Partially resolved: only the leftover name folds into the note.
+    payload = _normalize_ingredient(
+        {"quantity": 1, "unit": {"id": "u1", "name": "pinch"}, "food": {"name": "saffron"}},
+        original="a pinch of saffron",
+    )
+
+    assert payload["unit"] == {"id": "u1", "name": "pinch"}
+    assert "food" not in payload
+    assert payload["note"] == "saffron"
+
+
+@respx.mock
+async def test_search_by_unknown_food_returns_empty_not_error():
+    # A food Mealie has never heard of provably matches no recipes.
+    respx.get(f"{BASE}/api/foods").mock(return_value=httpx.Response(200, json={"items": []}))
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("search_recipes", {"foods": ["Unicorn Meat"]})
+
+    assert result.data["count"] == 0
+    assert "Unicorn Meat" in result.data["note"]
+
+
+@respx.mock
+async def test_search_by_food_filters_by_id():
+    respx.get(f"{BASE}/api/foods").mock(
+        return_value=httpx.Response(
+            200, json={"items": [{"id": "f9", "name": "Chicken"}]}
+        )
+    )
+    recipes = respx.get(f"{BASE}/api/recipes").mock(
+        return_value=httpx.Response(200, json={"items": [], "total": 0})
+    )
+
+    async with Client(build_server(config())) as client:
+        await client.call_tool("search_recipes", {"foods": ["chicken"]})
+
+    assert recipes.calls.last.request.url.params["foods"] == "f9"
+
+
+@respx.mock
+async def test_random_meal_plan_reports_partial_success():
+    # Day two failing must not hide that day one was written.
+    entry = {"id": "e1", "date": "2026-09-01", "entryType": "dinner", "title": "Stew"}
+    respx.post(f"{BASE}/api/households/mealplans/random").mock(
+        side_effect=[httpx.Response(200, json=entry), httpx.Response(500)]
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "random_meal_plan", {"start_date": "2026-09-01", "end_date": "2026-09-02"}
+        )
+
+    assert result.data["count"] == 1
+    assert "stopped at 2026-09-02" in result.data["failed"]
+
+
+@respx.mock
+async def test_random_meal_plan_raises_when_nothing_landed():
+    respx.post(f"{BASE}/api/households/mealplans/random").mock(
+        return_value=httpx.Response(500)
+    )
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="stopped at 2026-09-01"):
+            await client.call_tool(
+                "random_meal_plan", {"start_date": "2026-09-01", "end_date": "2026-09-01"}
+            )

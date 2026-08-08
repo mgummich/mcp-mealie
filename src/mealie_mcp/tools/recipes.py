@@ -35,7 +35,12 @@ def _normalize_ingredient(item: dict, original: str = "") -> dict:
         elif isinstance(value, str):
             unresolved.append(value)
 
-    note = " ".join(p for p in [*unresolved, item.get("note") or ""] if p).strip()
+    if unresolved and "food" not in payload and "unit" not in payload and original:
+        # Nothing resolved at all: the source line reads better than a
+        # reassembled fragment like "pinch saffron".
+        note = " ".join(p for p in [original, item.get("note") or ""] if p).strip()
+    else:
+        note = " ".join(p for p in [*unresolved, item.get("note") or ""] if p).strip()
     payload["note"] = note
     payload["originalText"] = item.get("originalText") or original or note
     # Mealie mints reference ids client-side; a null one fails validation.
@@ -78,7 +83,7 @@ async def _ingredient_payload(client: MealieClient, items: list[Any]) -> list[di
         results = await client.request(
             "POST", "/api/parser/ingredients", json={"ingredients": texts}
         )
-        for text, result in zip(texts, results):
+        for text, result in zip(texts, results, strict=True):
             parsed_by_text[text] = result.get("ingredient") or {"note": text}
 
     return [
@@ -112,11 +117,12 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         tags: list[str] | None = None,
         categories: list[str] | None = None,
         tools: list[str] | None = None,
+        foods: list[str] | None = None,
         require_all: bool = False,
         page: int = 1,
         limit: int = 20,
     ) -> dict:
-        """Search recipes by text and/or filter by tags, categories, or tools.
+        """Search recipes by text and/or filter by tags, categories, tools, or foods.
 
         Returns slim results (slug, name, description). Use get_recipe with a
         slug for full detail. Filtering happens server-side, so prefer filters
@@ -133,6 +139,17 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         if tools:
             params["tools"] = await client.taxonomy_slugs("tools", tools)
             params["requireAllTools"] = require_all
+        if foods:
+            # Foods have no slug, so this filter needs ids — and a food Mealie
+            # has never heard of provably matches nothing.
+            try:
+                resolved, _ = await client.resolve_taxonomy(
+                    "foods", foods, create_missing=False
+                )
+            except ToolError as exc:
+                return {"items": [], "count": 0, "note": str(exc)}
+            params["foods"] = [f["id"] for f in resolved]
+            params["requireAllFoods"] = require_all
 
         result = await client.request("GET", "/api/recipes", params=params)
         return shape.paginated(result, shape.recipe_summary, page_number=page)

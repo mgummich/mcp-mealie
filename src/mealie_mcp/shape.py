@@ -150,9 +150,7 @@ def paginated(page: dict, shaper: Callable[[dict], Any], *, page_number: int = 1
     if isinstance(total, int):
         result["total"] = total
         if total > len(items):
-            shown = min(page.get("perPage") or len(items), total)
             result["note"] = (
                 f"showing {len(items)} of {total} — pass page={page_number + 1} for more"
-                if shown else f"{total} total"
             )
     return result

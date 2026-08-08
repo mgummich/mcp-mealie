@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, timedelta
+
+# Aliased because add_meal_plan_entry has a `date` parameter (part of the tool
+# schema, so not renameable) that would otherwise shadow the class.
+from datetime import date as date_type
+from datetime import timedelta
 from typing import Any
 
 from fastmcp import FastMCP
@@ -18,9 +22,9 @@ ENTRY_TYPES = ("breakfast", "lunch", "dinner", "side")
 MAX_RANDOM_DAYS = 14
 
 
-def _as_date(value: str, field: str) -> date:
+def _as_date(value: str, field: str) -> date_type:
     try:
-        return date.fromisoformat(value)
+        return date_type.fromisoformat(value)
     except (TypeError, ValueError):
         raise ToolError(f"{field} must be an ISO date like 2026-08-09 (got {value!r})") from None
 
@@ -31,7 +35,7 @@ def _today() -> str:
     The server runs on the user's own machine, so local time is right in
     practice; the tool echoes this date back so a mismatch is visible.
     """
-    return date.today().isoformat()  # noqa: DTZ011
+    return date_type.today().isoformat()  # noqa: DTZ011
 
 
 def _check_entry_type(entry_type: str) -> str:
@@ -138,14 +142,26 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         _check_entry_type(entry_type)
         client = get_client()
         # The API creates one random entry per request, so a week is 7 POSTs.
-        # Looping here keeps it to a single tool call for the model.
+        # Looping here keeps it to a single tool call for the model. A mid-loop
+        # failure must not hide the entries already written — report them.
         added = []
+        failed: str | None = None
         for offset in range(days):
             day = (start + timedelta(days=offset)).isoformat()
-            entry = await client.request(
-                "POST",
-                "/api/households/mealplans/random",
-                json={"date": day, "entryType": entry_type},
-            )
+            try:
+                entry = await client.request(
+                    "POST",
+                    "/api/households/mealplans/random",
+                    json={"date": day, "entryType": entry_type},
+                )
+            except ToolError as exc:
+                failed = f"stopped at {day}: {exc}"
+                break
             added.append(shape.meal_plan_entry(entry))
-        return {"items": added, "count": len(added)}
+
+        if failed and not added:
+            raise ToolError(failed)
+        result: dict[str, Any] = {"items": added, "count": len(added)}
+        if failed:
+            result["failed"] = failed
+        return result
