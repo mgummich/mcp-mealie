@@ -118,3 +118,7 @@ want a small tool list and short responses.
 ## License
 
 MIT
+
+<!-- MCP registry ownership marker -->
+
+mcp-name: io.github.mgummich/mcp-mealie

@@ -1,0 +1,7 @@
+services:
+  mealie:
+    image: ghcr.io/mealie-recipes/mealie:v2.8.0
+    ports:
+      - "9925:9000"
+    environment:
+      ALLOW_SIGNUP: "false"

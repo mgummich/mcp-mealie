@@ -28,3 +28,4 @@ dist/
 # Build artifacts
 *.egg-info/
 .ruff_cache/
+uv.lock

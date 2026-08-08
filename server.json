@@ -1,0 +1,34 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "io.github.mgummich/mcp-mealie",
+  "description": "Curated, token-efficient MCP tools for Mealie recipes, meal plans, and cookbooks",
+  "repository": {
+    "url": "https://github.com/mgummich/mcp-mealie",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "mcp-mealie",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MEALIE_URL",
+          "description": "Base URL of your Mealie instance",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "MEALIE_API_TOKEN",
+          "description": "Long-lived Mealie API token",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
