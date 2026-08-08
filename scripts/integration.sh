@@ -23,4 +23,4 @@ TOKEN=$(curl -fs -X POST "$URL/api/auth/token" \
     python3 -c 'import sys, json; print(json.load(sys.stdin)["access_token"])')
 
 MEALIE_INTEGRATION=1 MEALIE_URL="$URL" MEALIE_API_TOKEN="$TOKEN" \
-    uv run pytest tests/integration -v
+    uv run --extra dev pytest tests/integration -v
