@@ -8,9 +8,10 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-github.io-blue)](https://mgummich.github.io/mcp-mealie/)
 
-Twenty-three curated tools over recipes, meal plans, cookbooks, and library
+Twenty-five curated tools over recipes, meal plans, cookbooks, and library
 cleanup, with responses trimmed hard enough that a recipe costs a few hundred
-tokens instead of a few thousand.
+tokens instead of a few thousand — and sent once, not in the two copies MCP
+would otherwise put on the wire.
 
 Works with any MCP client that speaks stdio: Claude Code, Claude Desktop,
 Cursor, Windsurf, Zed.
@@ -99,15 +100,18 @@ Once connected, ask in plain language — the agent picks the tools:
 
 ### ✨ Things it does for you
 
-- **Ingredients as plain text.** `create_recipe` accepts `["2 cups flour",
-  "pinch of salt"]` and runs them through Mealie's parser. Structured objects
-  work too; the two can be mixed.
+- **Ingredients as plain text.** `create_recipe` and `update_recipe` accept
+  `["2 cups flour", "pinch of salt"]` and run them through Mealie's parser.
+  Structured objects work too; the two can be mixed. That also makes
+  `update_recipe` the repair for an import that came back empty, which the
+  import tells you about rather than leaving to be discovered later.
 - **Tags by name.** Mealie's API needs tag objects with a name and a slug.
   Pass `["Vegan"]` and the server resolves or creates it, then tells you which
   ones were new.
 - **Updates don't wipe tags.** Mealie's PATCH replaces list fields wholesale.
   `update_recipe` merges tags, categories, and tools by default; pass
-  `replace_tags` to overwrite.
+  `replace_tags` to overwrite. Renaming a recipe changes its slug — Mealie
+  derives one from the other — so the result hands back the new one.
 - **Taxonomy cleanup without a script.** `manage_taxonomy` lists (paged, with
   the total), creates, renames, updates, and deletes foods, units, labels,
   tags, categories, and tools — and merges duplicate foods or units through
@@ -117,8 +121,8 @@ Once connected, ask in plain language — the agent picks the tools:
   request. `random_meal_plan` loops for you, capped at 14 days.
 - **Usage rollups in one call.** Mealie has no "how many recipes use this
   food" endpoint. `library_stats("foods")` sweeps the library server-side and
-  returns every food with its recipe count, unused ones included — the answer
-  to "is this safe to delete" without a search per name.
+  returns the most-used foods with their counts plus every unused one — the
+  answer to "is this safe to delete" without a search per name.
 - **Retag a whole shelf at once.** `bulk_tag_recipes(slugs, tags=["Weeknight"])`
   files any number of recipes through Mealie's bulk endpoints in one call,
   creating names that do not exist yet. It only adds; removing still goes

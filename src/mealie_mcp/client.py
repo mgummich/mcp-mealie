@@ -146,7 +146,11 @@ class MealieClient:
         if status == 422:
             raise ToolError(f"Mealie rejected the request: {_validation_detail(response)}")
         if status >= 500:
-            raise ToolError(f"Mealie returned {status} — the server is unhealthy")
+            # Mealie logs the Pydantic error server-side and often puts nothing
+            # in the body, but when it does that text is the only clue.
+            body = response.text[:200].strip()
+            detail = f": {body}" if body else " — the server is unhealthy"
+            raise ToolError(f"Mealie returned {status}{detail}")
         if status >= 400:
             raise ToolError(f"Mealie returned {status}: {response.text[:200]}")
 
@@ -306,6 +310,14 @@ class MealieClient:
                 break
             page += 1
         return items[:max_recipes], max(total, len(items))
+
+    def forget_recipe(self, slug: str) -> None:
+        """Drop a cached slug -> UUID entry after a rename or delete.
+
+        Args:
+            slug: The slug that no longer resolves.
+        """
+        self._slug_ids.pop(slug, None)
 
     def forget_taxonomy(self, resource: str) -> None:
         """Drop the cached snapshot for a resource after an external change.

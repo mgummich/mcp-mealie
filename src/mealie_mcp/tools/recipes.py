@@ -349,6 +349,9 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
 
         Notes are {"title": ..., "text": ...} objects; a plain string becomes
         an untitled note. Rating is 0-5.
+
+        Renaming changes the slug: Mealie derives it from the name, and the
+        old one stops resolving. Use the slug in the result from then on.
         """
         client = get_client()
         current = await client.request(
@@ -395,10 +398,18 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         if not payload:
             return {"slug": slug, "note": "nothing to update — no fields were provided"}
 
-        await client.request(
+        updated = await client.request(
             "PATCH", f"/api/recipes/{slug}", json=payload, not_found=f"recipe {slug!r} not found"
         )
-        result = await _fetch_recipe(client, slug)
+        # Mealie re-derives the slug from the name, so after a rename the slug
+        # we were given is already a 404. The PATCH body is the updated recipe,
+        # which both avoids that read and carries the new slug back to caller.
+        if isinstance(updated, dict) and updated.get("slug"):
+            if updated["slug"] != slug:
+                client.forget_recipe(slug)
+            result = shape.recipe_detail(updated)
+        else:
+            result = await _fetch_recipe(client, slug)
         return _with_created(result, created_tags, created_categories, created_tools)
 
     @mcp.tool
@@ -492,16 +503,23 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             raise ToolError(
                 f"confirm_slug {confirm_slug!r} does not match slug {slug!r} — nothing deleted"
             )
-        await get_client().request(
+        client = get_client()
+        await client.request(
             "DELETE", f"/api/recipes/{slug}", not_found=f"recipe {slug!r} not found"
         )
+        client.forget_recipe(slug)
         return {"deleted": slug}
 
     @mcp.tool
     async def import_recipe_from_url(
         url: str, include_tags: bool = True, include_categories: bool = True
     ) -> dict:
-        """Scrape a recipe from a URL into Mealie and return what was imported."""
+        """Scrape a recipe from a URL into Mealie and return what was imported.
+
+        Sites that render their recipe in the browser (Next.js and friends)
+        leave the scraper with nothing; the import still succeeds but the
+        recipe comes back empty, which the result flags.
+        """
         client = get_client()
         slug = await client.request(
             "POST",
@@ -514,7 +532,29 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         )
         if not isinstance(slug, str):
             slug = (slug or {}).get("slug")
-        return await _fetch_recipe(client, slug)
+        return _flag_failed_scrape(await _fetch_recipe(client, slug))
+
+
+def _flag_failed_scrape(result: dict) -> dict:
+    """Say so when Mealie's scraper came back empty-handed.
+
+    A failed scrape is still a 201, and the placeholder text it writes reads
+    like content unless someone looks. Cheaper to name it than to have the
+    recipe discovered broken later.
+    """
+    empty = [
+        field
+        for field in ("ingredients", "instructions")
+        if not result.get(field)
+        or all("could not detect" in str(item).casefold() for item in result[field])
+    ]
+    if not empty:
+        return result
+    return {
+        **result,
+        "note": f"the scraper found no {' or '.join(empty)} — the page probably "
+        "renders them in the browser. Fill them in with update_recipe.",
+    }
 
 
 def _merge(existing: list[dict] | None, incoming: list[dict], replace: bool) -> list[dict]:

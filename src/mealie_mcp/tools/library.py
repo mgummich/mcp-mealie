@@ -31,6 +31,9 @@ SUMMARY_KEYS = {"tags": "tags", "categories": "recipeCategory", "tools": "tools"
 #: Default ceiling for check_recipe_links — every source URL is one outbound
 #: request to somebody else's server.
 MAX_LINK_CHECKS = 200
+#: How many used items library_stats lists before it stops; the rest are a
+#: count. Every row carries a UUID, and a 300-tag table is thousands of tokens.
+TOP_USED = 50
 LINK_TIMEOUT_SECONDS = 10.0
 #: Statuses that mean "this host will not answer a probe", not "dead link".
 UNVERIFIABLE_STATUSES = {401, 403, 405, 429, 501}
@@ -56,14 +59,19 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
     async def library_stats(
         resource: str,
         include_unused: bool = True,
+        top: int = TOP_USED,
         max_recipes: int = MAX_LIBRARY_RECIPES,
     ) -> dict:
         """Count how many recipes use each tag, category, tool, food, or unit.
 
         One call instead of one search per name. This is what answers "which
         tags are unused", "what is my most-used food", and "is this safe to
-        delete". Items come back sorted by recipe_count, highest first, with
-        unused entries included by default.
+        delete". Items come back sorted by recipe_count, highest first.
+
+        Only the top used items are listed — raise top for more, and read
+        "used" for how many there are in total. Unused ones are all listed,
+        since those are the ones worth acting on; pass include_unused=false to
+        leave them out.
 
         resource: tags, categories, tools, foods, or units.
 
@@ -118,18 +126,26 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             for item_id, count in counts.items()
             if item_id not in known
         ]
-        if not include_unused:
-            rows = [r for r in rows if r["recipe_count"]]
         rows.sort(key=lambda r: (-r["recipe_count"], (r["name"] or "").casefold()))
+        used = [r for r in rows if r["recipe_count"]]
+        unused = [r for r in rows if not r["recipe_count"]] if include_unused else []
+
+        # The long tail of the used list is what nobody reads: "my most-used
+        # food" is answered by the first few rows, and each row carries a UUID.
+        # The unused list is the one people act on, so it comes back whole.
+        shown = used[:top] + unused
 
         result = {
             "resource": resource,
-            "items": rows,
-            "count": len(rows),
+            "items": shown,
+            "count": len(shown),
+            "used": len(used),
             "unused": sum(1 for r in rows if not r["recipe_count"]),
             "recipes_scanned": len(recipes),
         }
         notes = []
+        if len(used) > top:
+            notes.append(f"showing the {top} most-used of {len(used)} — raise top for the rest")
         if len(recipes) < total:
             notes.append(
                 f"scanned {len(recipes)} of {total} recipes — raise max_recipes for the rest"

@@ -54,10 +54,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one server meant two descriptions in every prompt and two copies of the same
   guidance to keep in sync.
 
+### Changed
+
+- Tool results are sent once, as JSON text. MCP returns a tool's value both as
+  a text block and as `structuredContent`, and both cross the wire; the
+  duplicate is pure token cost for a client that reads the text. Output
+  schemas — which said no more than "an object", and are what oblige the
+  server to send the structured copy — go with it. A 300-tag
+  `library_stats` went from roughly 12k tokens on the wire to 5k.
+- `library_stats` takes `top` (default 50): it lists that many used items and
+  reports how many there are in total. Every row carries a UUID, and the tail
+  of the used list is what nobody reads. Unused items are still listed in
+  full, since those are the ones worth acting on.
+
 ### Fixed
 
 - `manage_taxonomy` `list` silently truncated at 200 rows. It now takes a
   `page` argument and reports the total plus the next page to request.
+- `update_recipe` reported `recipe 'x' not found` after successfully renaming
+  one. Mealie derives the slug from the name, so the read-back used a slug
+  that no longer existed. The update response is now read from the PATCH
+  itself and carries the new slug.
+- `import_recipe_from_url` returned a recipe reading "Could not detect
+  ingredients" as though the import had worked. Pages that render their recipe
+  in the browser now come back with a note saying the scrape found nothing.
+- A 500 from Mealie was always reported as "the server is unhealthy",
+  discarding the response body. Whatever Mealie sent back is now included.
 
 ## [0.1.0] - 2026-08-09
 
