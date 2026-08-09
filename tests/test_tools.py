@@ -350,6 +350,22 @@ async def test_update_recipe_returns_the_new_slug_after_a_rename():
         result = await client.call_tool("update_recipe", {"slug": "roast", "name": "Sunday Roast"})
 
     assert data(result)["slug"] == "sunday-roast"
+    assert data(result)["renamed_from"] == "roast"
+
+
+@respx.mock
+async def test_update_recipe_says_nothing_about_a_rename_that_did_not_happen():
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast", "name": "Roast"})
+    )
+    respx.patch(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast", "name": "Roast"})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("update_recipe", {"slug": "roast", "rating": 5})
+
+    assert "renamed_from" not in data(result)
 
 
 @respx.mock

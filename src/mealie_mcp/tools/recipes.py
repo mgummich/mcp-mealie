@@ -351,7 +351,9 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         an untitled note. Rating is 0-5.
 
         Renaming changes the slug: Mealie derives it from the name, and the
-        old one stops resolving. Use the slug in the result from then on.
+        old one is a 404 from then on. The result carries the new slug plus
+        renamed_from — use that slug for anything you do next, above all
+        set_recipe_image.
         """
         client = get_client()
         current = await client.request(
@@ -404,13 +406,19 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         # Mealie re-derives the slug from the name, so after a rename the slug
         # we were given is already a 404. The PATCH body is the updated recipe,
         # which both avoids that read and carries the new slug back to caller.
+        renamed_from = None
         if isinstance(updated, dict) and updated.get("slug"):
             if updated["slug"] != slug:
+                # A model reading only "slug" would not notice it moved, and
+                # the next call on the old one is the failure it notices
+                # instead. Name the rename.
+                renamed_from = slug
                 client.forget_recipe(slug)
             result = shape.recipe_detail(updated)
         else:
             result = await _fetch_recipe(client, slug)
-        return _with_created(result, created_tags, created_categories, created_tools)
+        result = _with_created(result, created_tags, created_categories, created_tools)
+        return {**result, "renamed_from": renamed_from} if renamed_from else result
 
     @mcp.tool
     async def set_recipe_image(slug: str, url: str) -> dict:

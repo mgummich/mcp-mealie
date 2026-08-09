@@ -103,8 +103,9 @@ that build their page in the browser leave the scraper with nothing: the
 import still succeeds, but the recipe comes back empty and the response says
 so — fill it in with `update_recipe(ingredients=[...], instructions=[...])`,
 which takes plain text. And renaming a recipe changes its slug, because Mealie
-derives one from the other. The response carries the new slug; use it for
-every call after that, as the old one stops resolving.
+derives one from the other. The response carries the new slug and names the
+old one as `renamed_from`; use the new one for every call after that,
+`set_recipe_image` above all, as the old one stops resolving.
 
 **File many recipes at once.** `bulk_tag_recipes(slugs, tags=["Weeknight"],
 categories=["Dinner"])` runs Mealie's bulk endpoints, so retagging forty
