@@ -18,7 +18,7 @@ import httpx
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
-from ..client import MAX_LIBRARY_RECIPES, TAXONOMY_PATHS, MealieClient, map_concurrent
+from ..client import MAX_LIBRARY_RECIPES, MealieClient, map_concurrent
 
 GetClient = Callable[[], MealieClient]
 
@@ -108,8 +108,9 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
                     }
                 )
 
-        page = await client.request("GET", TAXONOMY_PATHS[resource], params={"perPage": 1000})
-        known = {i["id"]: i.get("name") for i in page.get("items") or [] if i.get("id")}
+        known = {
+            i["id"]: i.get("name") for i in await client.taxonomy_items(resource) if i.get("id")
+        }
 
         rows = [
             {"id": item_id, "name": name, "recipe_count": counts.get(item_id, 0)}

@@ -800,3 +800,82 @@ async def test_update_cookbook_keeps_the_id_and_patches_onto_the_current_row():
         "public": False,
     }
     assert data(result)["cookbook_id"] == "c1"
+
+
+@respx.mock
+async def test_suggest_recipes_resolves_names_to_ids_and_lists_what_is_missing():
+    respx.get(f"{BASE}/api/foods").mock(
+        return_value=httpx.Response(200, json={"items": [{"id": "f1", "name": "Rice"}]})
+    )
+    respx.get(f"{BASE}/api/organizers/tools").mock(
+        return_value=httpx.Response(200, json={"items": [{"id": "t1", "name": "Wok"}]})
+    )
+    suggestions = respx.get(f"{BASE}/api/recipes/suggestions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "recipe": {"slug": "fried-rice", "name": "Fried Rice"},
+                        "missingFoods": [{"name": "Egg"}],
+                        "missingTools": [],
+                    }
+                ]
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("suggest_recipes", {"foods": ["rice"], "tools": ["wok"]})
+
+    params = suggestions.calls.last.request.url.params
+    assert params["foods"] == "f1"
+    assert params["tools"] == "t1"
+    item = data(result)["items"][0]
+    assert item["slug"] == "fried-rice"
+    assert item["missing_foods"] == ["Egg"]
+    assert "missing_tools" not in item or item["missing_tools"] == []
+
+
+@respx.mock
+async def test_set_recipe_image_sends_the_url_without_importing_tags():
+    route = respx.post(f"{BASE}/api/recipes/stew/image").mock(
+        return_value=httpx.Response(200, json={})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "set_recipe_image", {"slug": "stew", "url": "https://example.com/stew.jpg"}
+        )
+
+    body = json.loads(route.calls.last.request.content)
+    assert body == {"url": "https://example.com/stew.jpg", "includeTags": False}
+    assert data(result) == {"slug": "stew", "image_url": "https://example.com/stew.jpg"}
+
+
+@respx.mock
+async def test_set_recipe_image_reports_an_unknown_slug():
+    respx.post(f"{BASE}/api/recipes/ghost/image").mock(return_value=httpx.Response(404))
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="'ghost' not found"):
+            await client.call_tool(
+                "set_recipe_image", {"slug": "ghost", "url": "https://example.com/x.jpg"}
+            )
+
+
+async def test_read_only_taxonomy_description_does_not_advertise_writes():
+    async with Client(build_server(config(read_only=True))) as client:
+        tool = next(t for t in await client.list_tools() if t.name == "manage_taxonomy")
+
+    assert "read-only" in tool.description
+    # The write actions may be named as refused, but never as callable.
+    for how_to_write in ("needs name", "needs item_id", "data may carry", "items batches"):
+        assert how_to_write not in tool.description
+
+
+async def test_taxonomy_description_documents_writes_when_writable():
+    async with Client(build_server(config())) as client:
+        tool = next(t for t in await client.list_tools() if t.name == "manage_taxonomy")
+
+    assert "merge" in tool.description and "read-only" not in tool.description

@@ -20,6 +20,9 @@ RETRY_BACKOFF_SECONDS = 0.5
 
 #: Page size and default ceiling for whole-library sweeps.
 LIBRARY_PAGE_SIZE = 100
+#: Page size for taxonomy sweeps. Bigger than the recipe page because the rows
+#: are small; a typical library still comes back in one request.
+TAXONOMY_PAGE_SIZE = 500
 MAX_LIBRARY_RECIPES = 2000
 #: How many per-recipe requests a sweep runs at once.
 FANOUT = 8
@@ -285,11 +288,40 @@ class MealieClient:
             for name in names
         ]
 
+    async def taxonomy_items(self, resource: str) -> list[dict]:
+        """Page through every item of a taxonomy resource.
+
+        Asking for one huge page instead would truncate silently, and a name
+        missing from the snapshot is not a lookup miss — resolve_taxonomy
+        would create a second copy of a food that already exists.
+
+        Args:
+            resource: Key into TAXONOMY_PATHS ("tags", "categories", ...).
+
+        Returns:
+            Every item Mealie holds for that resource.
+        """
+        path = TAXONOMY_PATHS[resource]
+        items: list[dict] = []
+        page = 1
+        while True:
+            result = await self.request(
+                "GET", path, params={"page": page, "perPage": TAXONOMY_PAGE_SIZE}
+            )
+            batch = (result or {}).get("items") or []
+            items.extend(batch)
+            total = (result or {}).get("total")
+            if len(batch) < TAXONOMY_PAGE_SIZE or (isinstance(total, int) and len(items) >= total):
+                break
+            page += 1
+        return items
+
     async def _load_taxonomy(self, resource: str) -> None:
         if resource not in self._taxonomy:
-            page = await self.request("GET", TAXONOMY_PATHS[resource], params={"perPage": 1000})
             self._taxonomy[resource] = {
-                item["name"].casefold(): item for item in page.get("items", [])
+                item["name"].casefold(): item
+                for item in await self.taxonomy_items(resource)
+                if item.get("name")
             }
 
     # ---------------------------------------------------------- library sweep

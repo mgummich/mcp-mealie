@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-08-09
 
 ### Added
 
@@ -112,6 +112,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parsing ingredients no longer drops that cache. `POST /api/parser/ingredients`
   writes nothing, but counted as a write, so every `create_recipe` made the
   next foods or units rollup sweep the library again.
+- Taxonomy snapshots are paged instead of read as one 1000-row request. Past
+  that many foods, a name that already existed looked missing, and
+  `resolve_taxonomy` created a duplicate of it; `library_stats` reported the
+  same items as unnamed. Both now walk every page.
+- `manage_taxonomy` no longer documents `create`, `update`, `merge`, and
+  `delete` when the server is read-only, where all four are refused.
+- `scripts/smoke.py` printed `null` for every tool and crashed on `--write`.
+  It read `result.data`, which is empty since results stopped being sent
+  twice; it now decodes the JSON text block like the tests do.
 
 ## [0.1.0] - 2026-08-09
 
@@ -124,4 +133,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multi-day random meal planning built into the tools.
 - Bundled agent skill at `skills/mealie/SKILL.md`.
 
+[0.2.0]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.2.0
 [0.1.0]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.1.0
