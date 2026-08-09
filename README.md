@@ -6,6 +6,7 @@
 [![CI](https://github.com/mgummich/mcp-mealie/actions/workflows/ci.yml/badge.svg)](https://github.com/mgummich/mcp-mealie/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/pypi/pyversions/mcp-mealie)](https://pypi.org/project/mcp-mealie/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-github.io-blue)](https://mgummich.github.io/mcp-mealie/)
 
 Twenty-three curated tools over recipes, meal plans, cookbooks, and library
 cleanup, with responses trimmed hard enough that a recipe costs a few hundred
@@ -33,9 +34,12 @@ No clone or virtualenv needed — `uvx` fetches it on demand.
 
 Create the token in Mealie under **Settings → API Tokens**.
 
-New to this? [`docs/HOWTO.md`](docs/HOWTO.md) walks the whole path in order —
-token, read-only first session, first writes, and the behaviors that surprise
-people once.
+New to this? The [howto](https://mgummich.github.io/mcp-mealie/howto)
+([`docs/HOWTO.md`](docs/HOWTO.md)) walks the whole path in order — token,
+read-only first session, first writes, and the behaviors that surprise people
+once. Full docs, including the
+[changelog](https://mgummich.github.io/mcp-mealie/changelog), live at
+[mgummich.github.io/mcp-mealie](https://mgummich.github.io/mcp-mealie/).
 
 ### Claude Code
 
