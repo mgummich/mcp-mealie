@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
@@ -13,6 +14,9 @@ from .. import shape
 from ..client import MealieClient
 
 GetClient = Callable[[], MealieClient]
+
+#: What Mealie's image pipeline can read.
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 
 def _normalize_ingredient(item: dict, original: str = "") -> dict:
@@ -411,6 +415,75 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             not_found=f"recipe {slug!r} not found",
         )
         return {"slug": slug, "image_url": url}
+
+    @mcp.tool
+    async def upload_recipe_image(slug: str, path: str) -> dict:
+        """Set a recipe's image from an image file on this machine.
+
+        For an image already on the web use set_recipe_image, which lets
+        Mealie fetch it. This one reads the file where the server runs, so it
+        only works when that is the same machine as the file.
+        """
+        image = Path(path).expanduser()
+        extension = image.suffix.lower()
+        if extension not in IMAGE_EXTENSIONS:
+            raise ToolError(
+                f"{path!r} is not an image Mealie accepts ({', '.join(sorted(IMAGE_EXTENSIONS))})"
+            )
+        try:
+            content = image.read_bytes()
+        except OSError as exc:
+            raise ToolError(f"cannot read {path!r}: {exc}") from exc
+
+        # Mealie's multipart handler requires the extension as its own field;
+        # it names the stored file and is not derived from the upload.
+        await get_client().request(
+            "PUT",
+            f"/api/recipes/{slug}/image",
+            files={"image": (image.name, content)},
+            data={"extension": extension},
+            not_found=f"recipe {slug!r} not found",
+        )
+        return {"slug": slug, "uploaded": str(image), "bytes": len(content)}
+
+    @mcp.tool
+    async def bulk_tag_recipes(
+        slugs: list[str],
+        tags: list[str] | None = None,
+        categories: list[str] | None = None,
+    ) -> dict:
+        """Add tags and/or categories to many recipes in one call.
+
+        Names are plain text and created in Mealie if they do not exist yet.
+        This only adds: whatever each recipe already carries stays. To remove
+        something, or to set one recipe's list exactly, use update_recipe with
+        replace_tags / replace_categories.
+        """
+        if not slugs:
+            raise ToolError("slugs is empty — nothing to tag")
+        if not tags and not categories:
+            raise ToolError("pass tags, categories, or both")
+
+        client = get_client()
+        created: dict[str, list[str]] = {}
+        applied: dict[str, list[str]] = {}
+        for resource, names, path, key in (
+            ("tags", tags, "tag", "tags"),
+            ("categories", categories, "categorize", "categories"),
+        ):
+            if not names:
+                continue
+            objects, created_names = await client.resolve_taxonomy(resource, names)
+            await client.request(
+                "POST",
+                f"/api/recipes/bulk-actions/{path}",
+                json={"recipes": slugs, key: objects},
+            )
+            applied[resource] = [o["name"] for o in objects]
+            if created_names:
+                created[resource] = created_names
+
+        return {"recipes": len(slugs), "applied": applied, "created": created}
 
     @mcp.tool
     async def delete_recipe(slug: str, confirm_slug: str) -> dict:

@@ -80,6 +80,8 @@ class MealieClient:
         *,
         params: dict | None = None,
         json: Any = None,
+        files: dict | None = None,
+        data: dict | None = None,
         not_found: str | None = None,
     ) -> Any:
         """Issue a request and return the decoded response body.
@@ -94,6 +96,8 @@ class MealieClient:
             path: API path relative to the base URL, e.g. "/api/recipes".
             params: Query parameters; None values are dropped.
             json: JSON-serializable request body.
+            files: Multipart file parts, e.g. {"image": (name, bytes)}.
+            data: Multipart form fields, sent alongside files.
             not_found: Message to raise on a 404, e.g. "recipe 'x' not found".
 
         Returns:
@@ -111,7 +115,9 @@ class MealieClient:
         last_transport_error: Exception | None = None
         for attempt in range(attempts):
             try:
-                response = await self._http.request(method, path, params=params, json=json)
+                response = await self._http.request(
+                    method, path, params=params, json=json, files=files, data=data
+                )
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 # Only GETs get here more than once; writes are never retried
                 # because Mealie has no idempotency key and a retried create
