@@ -6,12 +6,12 @@ Installs read the tag directly, so the tag *is* the distribution — there is no
 package index in the loop.
 
 Version lives in one place: `src/mealie_mcp/__init__.py` (`__version__`).
-`pyproject.toml` reads it via hatch. Three copies are written by hand and
-pinned by tests, so a half-bumped release fails the gates instead of shipping:
-`server.json` (twice), and the install tag in `README.md` and `docs/HOWTO.md`.
+`pyproject.toml` reads it via hatch. Two copies are written by hand and pinned
+by tests, so a half-bumped release fails the gates instead of shipping: the
+install tag in `README.md` and `docs/HOWTO.md`.
 
-1. Bump `__version__`, the two `version` fields in `server.json`, and the
-   `mcp-mealie@vX.Y.Z` pin in `README.md` and `docs/HOWTO.md`.
+1. Bump `__version__` and the `mcp-mealie@vX.Y.Z` pin in `README.md` and
+   `docs/HOWTO.md`.
 2. Add a `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md`, and a link for
    it at the bottom. The workflow reads this section as the release notes and
    fails if it is missing.
@@ -39,5 +39,8 @@ Putting this on PyPI would mean creating a pending publisher on pypi.org
 step. It was removed because the account does not exist; v0.2.0's publish
 attempt failed with `invalid-publisher`, uploading nothing.
 
-The MCP registry (`mcp-publisher`) waits on the same thing: `server.json`
-declares a `pypi` package, and the registry verifies ownership of it there.
+The MCP registry waits on the same thing, and its manifest is gone with it:
+`server.json` declared a `pypi` package that was never published, so the
+registry had nothing to verify ownership of. Publishing there again means
+restoring the manifest (`git log -- server.json`) alongside the package it
+points at, plus the `mcp-name:` marker the README carried.
