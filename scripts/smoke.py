@@ -15,6 +15,7 @@ import asyncio
 import json
 import sys
 from datetime import date, timedelta
+from typing import Any
 
 from fastmcp import Client
 
@@ -22,9 +23,17 @@ from mealie_mcp.config import Config
 from mealie_mcp.server import build_server
 
 
+def data(result) -> Any:
+    """Decode a tool result.
+
+    The server sends results as JSON text only — the duplicate structured copy
+    is stripped by SendResultsOnce — so fastmcp's `.data` shortcut is None.
+    """
+    return json.loads(result.content[0].text)
+
+
 def show(label: str, result) -> None:
-    data = result.data if hasattr(result, "data") else result
-    text = json.dumps(data, indent=2, default=str)
+    text = json.dumps(data(result), indent=2, default=str)
     print(f"\n--- {label}\n{text[:1200]}")
 
 
@@ -58,7 +67,7 @@ async def main(write: bool) -> None:
             },
         )
         show("create_recipe", created)
-        slug = created.data["slug"]
+        slug = data(created)["slug"]
 
         show(
             "update_recipe (tags should merge)",
@@ -91,12 +100,12 @@ async def main(write: bool) -> None:
         show("create_cookbook", book)
         show(
             "get_cookbook_recipes",
-            await client.call_tool("get_cookbook_recipes", {"cookbook": book.data["cookbook_id"]}),
+            await client.call_tool("get_cookbook_recipes", {"cookbook": data(book)["cookbook_id"]}),
         )
 
         show(
             "delete_cookbook",
-            await client.call_tool("delete_cookbook", {"cookbook_id": book.data["cookbook_id"]}),
+            await client.call_tool("delete_cookbook", {"cookbook_id": data(book)["cookbook_id"]}),
         )
         show(
             "delete_recipe",

@@ -26,6 +26,18 @@ PAGE_SIZE = 50
 #: Per-item keys accepted inside the batch `items` list.
 ITEM_KEYS = ("name", "item_id", "data", "merge_into")
 
+#: What manage_taxonomy says when the server is read-only. The full docstring
+#: documents create, update, merge, and delete, all of which are refused in
+#: that mode, so it is replaced rather than shown and then contradicted.
+READ_ONLY_DOC = """List Mealie's organizing entities.
+
+resource: foods, units, labels, tags, categories, or tools
+action: list only — this server is running read-only, so create, update,
+  merge, and delete are refused. Listing returns 50 per page, with the
+  total and the page to ask for next.
+search narrows the list; page walks it.
+"""
+
 
 async def _apply(
     client: MealieClient,
@@ -117,7 +129,9 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
 
     allowed_actions = ("list",) if read_only else ACTIONS
 
-    @mcp.tool
+    # In read-only mode every write action is refused, so describing them
+    # only buys a round trip that ends in "server is in read-only mode".
+    @mcp.tool(description=READ_ONLY_DOC if read_only else None)
     async def manage_taxonomy(
         resource: str,
         action: str = "list",

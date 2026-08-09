@@ -263,3 +263,23 @@ async def test_recipe_details_cache_is_bounded(client, monkeypatch):
 )
 def test_slugify(name, expected):
     assert slugify(name) == expected
+
+
+@respx.mock
+async def test_taxonomy_pages_past_the_first_response(client, monkeypatch):
+    # A resource bigger than one page must not resolve as "missing", or
+    # resolve_taxonomy would create a second copy of a food that exists.
+    monkeypatch.setattr(client_module, "TAXONOMY_PAGE_SIZE", 2)
+    pages = {
+        1: {"items": [{"id": "f1", "name": "Apple"}, {"id": "f2", "name": "Butter"}], "total": 3},
+        2: {"items": [{"id": "f3", "name": "Chicken"}], "total": 3},
+    }
+    route = respx.get(f"{BASE}/api/foods").mock(
+        side_effect=lambda request: httpx.Response(200, json=pages[int(request.url.params["page"])])
+    )
+
+    resolved, created = await client.resolve_taxonomy("foods", ["chicken"], create_missing=False)
+
+    assert route.call_count == 2
+    assert resolved == [{"id": "f3", "name": "Chicken"}]
+    assert created == []
