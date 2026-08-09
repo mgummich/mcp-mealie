@@ -33,6 +33,10 @@ No clone or virtualenv needed — `uvx` fetches it on demand.
 
 Create the token in Mealie under **Settings → API Tokens**.
 
+New to this? [`docs/HOWTO.md`](docs/HOWTO.md) walks the whole path in order —
+token, read-only first session, first writes, and the behaviors that surprise
+people once.
+
 ### Claude Code
 
 ```bash
