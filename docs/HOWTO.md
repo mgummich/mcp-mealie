@@ -89,7 +89,14 @@ in order of how much they repay the effort:
 already there and names that do not exist yet are created — the response says
 which were new, so read that line back before a typo becomes a permanent tag.
 Pass `replace_tags=True` to overwrite instead. If the scraper missed the
-photo, `set_recipe_image(slug, url)`.
+photo, `set_recipe_image(slug, url)` fetches it from the web, and
+`upload_recipe_image(slug, path)` sends a file from the machine the server
+runs on.
+
+**File many recipes at once.** `bulk_tag_recipes(slugs, tags=["Weeknight"],
+categories=["Dinner"])` runs Mealie's bulk endpoints, so retagging forty
+recipes is one call rather than forty. It only adds; to take a tag off, or to
+set one recipe's list exactly, use `update_recipe` with `replace_tags=True`.
 
 **Merge duplicate foods.** `manage_taxonomy("foods", "merge", item_id=<loser>,
 merge_into=<keeper>)` uses Mealie's own merge endpoint and repoints every

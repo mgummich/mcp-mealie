@@ -79,7 +79,7 @@ take precedence over the file.
 
 | Category | Tools |
 | --- | --- |
-| 🥘 **Recipes** | `search_recipes` · `get_recipe` · `suggest_recipes` · `create_recipe` · `update_recipe` · `set_recipe_image` · `delete_recipe` · `import_recipe_from_url` |
+| 🥘 **Recipes** | `search_recipes` · `get_recipe` · `suggest_recipes` · `create_recipe` · `update_recipe` · `set_recipe_image` · `upload_recipe_image` · `bulk_tag_recipes` · `delete_recipe` · `import_recipe_from_url` |
 | 📅 **Meal plans** | `get_meal_plan` · `get_todays_meals` · `add_meal_plan_entry` · `delete_meal_plan_entry` · `random_meal_plan` |
 | 📚 **Cookbooks** | `list_cookbooks` · `get_cookbook_recipes` · `create_cookbook` · `update_cookbook` · `delete_cookbook` |
 | 📊 **Library reports** | `library_stats` · `find_duplicate_recipes` · `check_recipe_links` |
@@ -119,6 +119,10 @@ Once connected, ask in plain language — the agent picks the tools:
   food" endpoint. `library_stats("foods")` sweeps the library server-side and
   returns every food with its recipe count, unused ones included — the answer
   to "is this safe to delete" without a search per name.
+- **Retag a whole shelf at once.** `bulk_tag_recipes(slugs, tags=["Weeknight"])`
+  files any number of recipes through Mealie's bulk endpoints in one call,
+  creating names that do not exist yet. It only adds; removing still goes
+  through `update_recipe` with `replace_tags`.
 - **Batch taxonomy writes.** `manage_taxonomy(action="update", items=[...])`
   runs twenty-five renames in one call, and reports per-item failures instead
   of stopping at the first bad id.

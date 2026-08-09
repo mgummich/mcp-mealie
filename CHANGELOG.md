@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `bulk_tag_recipes(slugs, tags, categories)` — adds tags and categories to
+  many recipes through Mealie's bulk-action endpoints, creating names that do
+  not exist yet. Adds only; removal stays with `update_recipe`.
+- `upload_recipe_image(slug, path)` — sends a local image file as a recipe's
+  image, including the `extension` form field Mealie's multipart handler
+  requires. `set_recipe_image` still covers images already on the web.
 - `library_stats(resource)` — usage rollup for tags, categories, tools, foods,
   or units in one call: every item with its recipe count, unused ones included.
   Mealie has no endpoint for this, so it sweeps the recipe list server-side

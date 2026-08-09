@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 import respx
@@ -32,6 +34,8 @@ WRITE_TOOLS = {
     "create_recipe",
     "update_recipe",
     "set_recipe_image",
+    "upload_recipe_image",
+    "bulk_tag_recipes",
     "delete_recipe",
     "import_recipe_from_url",
     "add_meal_plan_entry",
@@ -327,6 +331,69 @@ async def test_update_recipe_writes_notes_and_rating():
     assert patch.calls.last.request.read() == (
         b'{"notes":[{"title":"","text":"Rest 10 min."}],"rating":4.0}'
     )
+
+
+@respx.mock
+async def test_bulk_tag_sends_resolved_objects_and_creates_missing_names():
+    respx.get(f"{BASE}/api/organizers/tags").mock(
+        return_value=httpx.Response(
+            200, json={"items": [{"id": "t1", "name": "Vegan", "slug": "vegan"}]}
+        )
+    )
+    created = respx.post(f"{BASE}/api/organizers/tags").mock(
+        return_value=httpx.Response(201, json={"id": "t2", "name": "Quick", "slug": "quick"})
+    )
+    bulk = respx.post(f"{BASE}/api/recipes/bulk-actions/tag").mock(
+        return_value=httpx.Response(200, json=None)
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "bulk_tag_recipes", {"slugs": ["roast", "stew"], "tags": ["vegan", "Quick"]}
+        )
+
+    assert created.called
+    body = json.loads(bulk.calls.last.request.read())
+    assert body["recipes"] == ["roast", "stew"]
+    # TagBase needs all three fields; a bare name is a 422.
+    assert body["tags"][0] == {"id": "t1", "name": "Vegan", "slug": "vegan"}
+    assert result.data["recipes"] == 2
+    assert result.data["created"]["tags"] == ["Quick"]
+
+
+async def test_bulk_tag_refuses_a_call_that_would_do_nothing():
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="pass tags, categories, or both"):
+            await client.call_tool("bulk_tag_recipes", {"slugs": ["roast"]})
+
+
+@respx.mock
+async def test_upload_recipe_image_sends_the_extension_field(tmp_path):
+    photo = tmp_path / "roast.JPG"
+    photo.write_bytes(b"\xff\xd8\xff")
+    upload = respx.put(f"{BASE}/api/recipes/roast/image").mock(
+        return_value=httpx.Response(200, json={})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "upload_recipe_image", {"slug": "roast", "path": str(photo)}
+        )
+
+    # Without the extension part Mealie answers 422 Field required.
+    body = upload.calls.last.request.read()
+    assert b'name="extension"' in body and b".jpg" in body
+    assert b"\xff\xd8\xff" in body
+    assert result.data["bytes"] == 3
+
+
+async def test_upload_recipe_image_rejects_a_non_image(tmp_path):
+    doc = tmp_path / "notes.txt"
+    doc.write_text("not a photo")
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="not an image"):
+            await client.call_tool("upload_recipe_image", {"slug": "roast", "path": str(doc)})
 
 
 async def test_get_recipe_rejects_an_unknown_field():

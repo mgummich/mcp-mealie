@@ -9,6 +9,7 @@ These tests write real data — never point them at an instance you care about.
 
 from __future__ import annotations
 
+import base64
 import os
 from datetime import date, timedelta
 
@@ -112,6 +113,39 @@ async def test_write_roundtrip(client):
     finally:
         deleted = await client.call_tool("delete_recipe", {"slug": slug, "confirm_slug": slug})
         assert deleted.data == {"deleted": slug}
+
+
+async def test_bulk_tag_and_image_upload(client, tmp_path):
+    slugs = []
+    for name in ("Bulk Test One", "Bulk Test Two"):
+        created = await client.call_tool("create_recipe", {"name": name})
+        slugs.append(created.data["slug"])
+    try:
+        result = await client.call_tool(
+            "bulk_tag_recipes",
+            {"slugs": slugs, "tags": ["Bulk Tagged"], "categories": ["Bulk Category"]},
+        )
+        assert result.data["recipes"] == 2
+
+        for slug in slugs:
+            recipe = await client.call_tool("get_recipe", {"slug": slug})
+            assert "Bulk Tagged" in recipe.data["tags"]
+            assert "Bulk Category" in recipe.data["categories"]
+
+        # A 1x1 PNG is enough to prove the multipart body Mealie wants.
+        photo = tmp_path / "pixel.png"
+        photo.write_bytes(
+            base64.b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+            )
+        )
+        uploaded = await client.call_tool(
+            "upload_recipe_image", {"slug": slugs[0], "path": str(photo)}
+        )
+        assert uploaded.data["slug"] == slugs[0]
+    finally:
+        for slug in slugs:
+            await client.call_tool("delete_recipe", {"slug": slug, "confirm_slug": slug})
 
 
 async def test_parse_ingredients(client):
