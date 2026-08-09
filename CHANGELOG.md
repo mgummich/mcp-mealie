@@ -74,7 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `update_recipe` reported `recipe 'x' not found` after successfully renaming
   one. Mealie derives the slug from the name, so the read-back used a slug
   that no longer existed. The update response is now read from the PATCH
-  itself and carries the new slug.
+  itself and carries the new slug, plus `renamed_from` so the caller can see
+  the slug moved rather than infer it.
 - `import_recipe_from_url` returned a recipe reading "Could not detect
   ingredients" as though the import had worked. Pages that render their recipe
   in the browser now come back with a note saying the scrape found nothing.
