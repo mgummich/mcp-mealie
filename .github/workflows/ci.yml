@@ -17,6 +17,8 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: uv run --extra dev ruff check .
+      - run: uv run --extra dev ruff format --check .
+      - run: uv run --extra dev mypy
       - run: uv run --extra dev pytest
 
   integration:

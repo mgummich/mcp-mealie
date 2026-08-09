@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from dotenv import find_dotenv, load_dotenv
+
 TRUTHY = {"1", "true", "yes", "on"}
 FALSY = {"0", "false", "no", "off"}
 
@@ -50,6 +52,9 @@ class Config:
     def from_env(cls) -> Config:
         """Build a Config from MEALIE_* environment variables.
 
+        A .env file in the working directory (or any parent) is loaded first,
+        but never overrides variables already set in the real environment.
+
         Returns:
             A validated Config; MEALIE_URL is stripped of trailing slashes.
 
@@ -57,6 +62,10 @@ class Config:
             ConfigError: If MEALIE_URL or MEALIE_API_TOKEN is missing or
                 malformed, or a boolean variable has an unrecognized value.
         """
+        # usecwd: without it dotenv searches upward from this module's directory
+        # (inside site-packages for an installed copy), not the user's cwd.
+        load_dotenv(find_dotenv(usecwd=True))
+
         url = (os.environ.get("MEALIE_URL") or "").strip().rstrip("/")
         if not url:
             raise ConfigError("MEALIE_URL is required (e.g. https://mealie.example.com)")
@@ -66,8 +75,7 @@ class Config:
         token = (os.environ.get("MEALIE_API_TOKEN") or "").strip()
         if not token:
             raise ConfigError(
-                "MEALIE_API_TOKEN is required — create one in Mealie under "
-                "Settings > API Tokens"
+                "MEALIE_API_TOKEN is required — create one in Mealie under Settings > API Tokens"
             )
 
         return cls(

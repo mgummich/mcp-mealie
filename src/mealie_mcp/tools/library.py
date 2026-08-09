@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from collections import Counter, defaultdict
 from collections.abc import Callable
+from functools import partial
+from typing import Any
 
 import httpx
 from fastmcp import FastMCP
@@ -88,7 +90,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             singular = resource[:-1]  # foods -> food, units -> unit
             slugs = [recipe.get("slug") for recipe in recipes]
             details = await map_concurrent(
-                [(lambda s=slug: client.request("GET", f"/api/recipes/{s}")) for slug in slugs]
+                [partial(client.request, "GET", f"/api/recipes/{slug}") for slug in slugs]
             )
             for detail in details:
                 if isinstance(detail, BaseException) or not isinstance(detail, dict):
@@ -154,7 +156,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             if key:
                 by_key[key].append({"slug": recipe.get("slug"), "name": recipe.get("name")})
 
-        groups = [
+        groups: list[dict[str, Any]] = [
             {"name": key, "count": len(members), "recipes": members}
             for key, members in by_key.items()
             if len(members) > 1
@@ -207,7 +209,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
                 timeout=LINK_TIMEOUT_SECONDS, follow_redirects=True
             ) as http:
                 probes = await map_concurrent(
-                    [(lambda url=r["orgURL"]: _probe(http, url)) for r in with_source]
+                    [partial(_probe, http, r["orgURL"]) for r in with_source]
                 )
             for recipe, probe in zip(with_source, probes, strict=True):
                 if isinstance(probe, BaseException):

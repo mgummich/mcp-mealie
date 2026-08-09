@@ -67,6 +67,10 @@ Add the JSON block above under `mcpServers` in the client's config file.
 Booleans accept `1/true/yes/on` and their negations. An unrecognized value is a
 startup error rather than a silent false.
 
+These can also live in a `.env` file in the working directory (or any parent) —
+copy `.env.example` to `.env` and fill it in. Real environment variables always
+take precedence over the file.
+
 > [!NOTE]
 > Requires Mealie **2.0 or newer**. The server checks at startup and refuses to
 > run against 1.x, which has no `/api/households` endpoints.
@@ -148,10 +152,15 @@ two descriptions in every prompt and two places for the same guidance to drift.
 ## 🛠️ Development
 
 ```bash
-uv sync --extra dev          # creates .venv from the committed uv.lock
-uv run --extra dev pytest    # unit tests, fully offline
+uv sync --extra dev             # creates .venv from the committed uv.lock
+uv run --extra dev pre-commit install   # run the lint gates on every commit
+uv run --extra dev pytest       # unit tests, fully offline
 uv run --extra dev ruff check .
+uv run --extra dev ruff format .
+uv run --extra dev mypy         # type-checks src/
 ```
+
+`pre-commit run --all-files` runs the same gates CI does.
 
 Unit tests run entirely offline: `shape.py` against captured fixtures,
 `client.py` against mocked HTTP.

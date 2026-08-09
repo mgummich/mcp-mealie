@@ -84,3 +84,21 @@ def test_verify_ssl_can_be_disabled(monkeypatch):
     set_env(monkeypatch, MEALIE_VERIFY_SSL="false")
 
     assert Config.from_env().verify_ssl is False
+
+
+def test_a_dotenv_file_supplies_missing_variables(monkeypatch, tmp_path):
+    (tmp_path / ".env").write_text('MEALIE_URL=https://from-file.test\nMEALIE_API_TOKEN="tok"\n')
+    monkeypatch.chdir(tmp_path)
+
+    config = Config.from_env()
+
+    assert config.url == "https://from-file.test"
+    assert config.token == "tok"
+
+
+def test_the_real_environment_wins_over_the_dotenv_file(monkeypatch, tmp_path):
+    (tmp_path / ".env").write_text("MEALIE_URL=https://from-file.test\n")
+    monkeypatch.chdir(tmp_path)
+    set_env(monkeypatch)
+
+    assert Config.from_env().url == "https://mealie.test"

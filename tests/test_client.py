@@ -118,9 +118,7 @@ async def test_writes_are_never_retried(client):
 
 @respx.mock
 async def test_bare_slug_response_is_returned_as_a_string(client):
-    respx.post(f"{BASE}/api/recipes").mock(
-        return_value=httpx.Response(201, text='"roast-chicken"')
-    )
+    respx.post(f"{BASE}/api/recipes").mock(return_value=httpx.Response(201, text='"roast-chicken"'))
 
     assert await client.request("POST", "/api/recipes", json={"name": "x"}) == "roast-chicken"
 

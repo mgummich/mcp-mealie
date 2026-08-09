@@ -121,9 +121,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         return {"deleted": entry_id}
 
     @mcp.tool
-    async def random_meal_plan(
-        start_date: str, end_date: str, entry_type: str = "dinner"
-    ) -> dict:
+    async def random_meal_plan(start_date: str, end_date: str, entry_type: str = "dinner") -> dict:
         """Fill a date range with random recipes, one meal per day.
 
         Honors any meal plan rules configured in Mealie. The range is capped at

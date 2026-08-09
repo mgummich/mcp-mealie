@@ -35,9 +35,10 @@ async def main(write: bool) -> None:
         print(f"{len(tools)} tools: {', '.join(tools)}")
 
         show("search_recipes", await client.call_tool("search_recipes", {"limit": 3}))
-        show("manage_taxonomy(tags)", await client.call_tool(
-            "manage_taxonomy", {"resource": "tags", "action": "list"}
-        ))
+        show(
+            "manage_taxonomy(tags)",
+            await client.call_tool("manage_taxonomy", {"resource": "tags", "action": "list"}),
+        )
         show("get_todays_meals", await client.call_tool("get_todays_meals", {}))
         show("list_cookbooks", await client.call_tool("list_cookbooks", {}))
 
@@ -59,38 +60,48 @@ async def main(write: bool) -> None:
         show("create_recipe", created)
         slug = created.data["slug"]
 
-        show("update_recipe (tags should merge)", await client.call_tool(
-            "update_recipe", {"slug": slug, "tags": ["Quick"]}
-        ))
+        show(
+            "update_recipe (tags should merge)",
+            await client.call_tool("update_recipe", {"slug": slug, "tags": ["Quick"]}),
+        )
 
         today = date.today()  # noqa: DTZ011
-        show("add_meal_plan_entry", await client.call_tool(
+        show(
             "add_meal_plan_entry",
-            {"date": today.isoformat(), "recipe_slug": slug, "entry_type": "breakfast"},
-        ))
-        show("get_meal_plan", await client.call_tool(
+            await client.call_tool(
+                "add_meal_plan_entry",
+                {"date": today.isoformat(), "recipe_slug": slug, "entry_type": "breakfast"},
+            ),
+        )
+        show(
             "get_meal_plan",
-            {
-                "start_date": today.isoformat(),
-                "end_date": (today + timedelta(days=1)).isoformat(),
-            },
-        ))
+            await client.call_tool(
+                "get_meal_plan",
+                {
+                    "start_date": today.isoformat(),
+                    "end_date": (today + timedelta(days=1)).isoformat(),
+                },
+            ),
+        )
 
         book = await client.call_tool(
             "create_cookbook",
             {"name": "Smoke Test Book", "query_filter": 'tags.name IN ["Smoke Test"]'},
         )
         show("create_cookbook", book)
-        show("get_cookbook_recipes", await client.call_tool(
-            "get_cookbook_recipes", {"cookbook": book.data["cookbook_id"]}
-        ))
+        show(
+            "get_cookbook_recipes",
+            await client.call_tool("get_cookbook_recipes", {"cookbook": book.data["cookbook_id"]}),
+        )
 
-        show("delete_cookbook", await client.call_tool(
-            "delete_cookbook", {"cookbook_id": book.data["cookbook_id"]}
-        ))
-        show("delete_recipe", await client.call_tool(
-            "delete_recipe", {"slug": slug, "confirm_slug": slug}
-        ))
+        show(
+            "delete_cookbook",
+            await client.call_tool("delete_cookbook", {"cookbook_id": book.data["cookbook_id"]}),
+        )
+        show(
+            "delete_recipe",
+            await client.call_tool("delete_recipe", {"slug": slug, "confirm_slug": slug}),
+        )
 
 
 if __name__ == "__main__":
