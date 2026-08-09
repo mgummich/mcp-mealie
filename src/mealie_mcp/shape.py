@@ -264,7 +264,8 @@ def taxonomy_item(item: dict) -> dict:
 
     Returns:
         Dict with id, name, slug, and — where present — description,
-        plural_name, abbreviation, label, and aliases; empty fields dropped.
+        plural_name, abbreviation, plural_abbreviation, label, color, and
+        aliases; empty fields dropped.
     """
     return _clean(
         {
@@ -274,7 +275,9 @@ def taxonomy_item(item: dict) -> dict:
             "description": item.get("description"),
             "plural_name": item.get("pluralName"),
             "abbreviation": item.get("abbreviation"),
+            "plural_abbreviation": item.get("pluralAbbreviation"),
             "label": (item.get("label") or {}).get("name"),
+            "color": item.get("color"),
             "aliases": names(item.get("aliases")),
         }
     )

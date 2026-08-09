@@ -146,10 +146,16 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         action="update", items=[{"item_id": "...", "name": "Scallion"},
         {"item_id": "...", "data": {"pluralName": "Onions"}}].
 
-        data holds the fields Mealie stores beyond the name. For foods:
-        description, pluralName, labelId (from resource="labels"), and
-        aliases as [{"name": "..."}]. For units: abbreviation, pluralName,
-        useAbbreviation. Unmentioned fields keep their current value.
+        data holds the fields Mealie stores beyond the name:
+          foods — description, pluralName, labelId (from resource="labels"),
+            aliases as [{"name": "..."}], extras
+          units — description, pluralName, abbreviation, pluralAbbreviation,
+            useAbbreviation, fraction, aliases as [{"name": "..."}], extras
+          labels — color as a hex string, e.g. "#adb5bd"
+          tools — householdsWithTool as a list of household slugs
+          tags, categories — name only
+        Unmentioned fields keep their current value, but a list field is
+        replaced wholesale: send every alias you want kept, not the new one.
 
         Recipe tools accept tag and category names directly and create them as
         needed, so this is mostly for tidying up.
