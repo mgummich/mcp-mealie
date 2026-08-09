@@ -1,11 +1,20 @@
 # Releasing
 
-Version lives in one place: `src/mealie_mcp/__init__.py` (`__version__`).
-`pyproject.toml` reads it via hatch. `server.json` duplicates it for the MCP
-registry and must be bumped by hand.
+A release is a tag. The `Release` workflow does the rest: it re-runs the
+gates, builds the wheel and sdist, cuts a GitHub Release, and attaches both.
+Installs read the tag directly, so the tag *is* the distribution — there is no
+package index in the loop.
 
-1. Bump `__version__` and the two `version` fields in `server.json`.
-2. Add a section to `CHANGELOG.md`.
+Version lives in one place: `src/mealie_mcp/__init__.py` (`__version__`).
+`pyproject.toml` reads it via hatch. Three copies are written by hand and
+pinned by tests, so a half-bumped release fails the gates instead of shipping:
+`server.json` (twice), and the install tag in `README.md` and `docs/HOWTO.md`.
+
+1. Bump `__version__`, the two `version` fields in `server.json`, and the
+   `mcp-mealie@vX.Y.Z` pin in `README.md` and `docs/HOWTO.md`.
+2. Add a `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md`, and a link for
+   it at the bottom. The workflow reads this section as the release notes and
+   fails if it is missing.
 3. Run the gates: `uv run --extra dev pre-commit run --all-files`,
    `uv run --extra dev pytest`, and `./scripts/integration.sh` (needs Docker).
 4. Commit, then tag and push:
@@ -15,28 +24,20 @@ registry and must be bumped by hand.
    git push origin main v0.X.Y
    ```
 
-   The `Release` workflow builds and publishes to PyPI via trusted publishing.
+That is the whole release. Watch it with `gh run watch`, and if it fails,
+delete the tag (`git push --delete origin v0.X.Y`), fix, and push it again —
+nothing is published anywhere until the workflow's last step.
 
-   > **PyPI is not configured yet.** The `publish` job fails on v0.2.0 with
-   > `invalid-publisher`: PyPI has no publisher record matching the claims
-   > GitHub sends. Nothing is uploaded when that happens, so the version
-   > number stays free — fix the configuration and re-run the failed job
-   > rather than burning a patch release.
-   >
-   > To configure it, add a *pending* publisher on pypi.org (Your account →
-   > Publishing) — pending, because the project has never been published:
-   > project `mcp-mealie`, owner `mgummich`, repository `mcp-mealie`,
-   > workflow `release.yml`, environment `pypi`. All five must match, and
-   > the environment is the one usually left blank.
-   >
-   > Until then, installs come from git: the README's `uvx --from
-   > git+https://github.com/mgummich/mcp-mealie@vX.Y.Z` form needs only the
-   > tag, which step 4 already pushed. Bump the tag in the README and
-   > `docs/HOWTO.md` as part of the release.
+## Not published to a package index
 
-5. Publish the version to the MCP registry:
+`uvx --from git+https://github.com/mgummich/mcp-mealie@vX.Y.Z mcp-mealie`
+needs only the tag, which is why the install docs use it.
 
-   ```bash
-   mcp-publisher login github
-   mcp-publisher publish
-   ```
+Putting this on PyPI would mean creating a pending publisher on pypi.org
+(project `mcp-mealie`, owner `mgummich`, repository `mcp-mealie`, workflow
+`release.yml`, environment `pypi`) and restoring the `pypa/gh-action-pypi-publish`
+step. It was removed because the account does not exist; v0.2.0's publish
+attempt failed with `invalid-publisher`, uploading nothing.
+
+The MCP registry (`mcp-publisher`) waits on the same thing: `server.json`
+declares a `pypi` package, and the registry verifies ownership of it there.

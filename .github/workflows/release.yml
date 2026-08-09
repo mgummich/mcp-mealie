@@ -4,12 +4,17 @@ on:
   push:
     tags: ["v*"]
 
+# One job: the gates, the build, and the release all read the same checkout,
+# so splitting them only bought artifact passing between runners.
 jobs:
-  check:
+  release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v9.0.0
+
       - name: Tag must match __version__
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -18,30 +23,33 @@ jobs:
             echo "tag v$tag does not match __version__ $version" >&2
             exit 1
           fi
+
+      # pytest also pins server.json and the install tag in the docs to
+      # __version__, so a half-bumped release fails here rather than shipping.
       - run: uv run --extra dev ruff check .
       - run: uv run --extra dev pytest
 
-  build:
-    needs: check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9.0.0
       - run: uv build
-      - uses: actions/upload-artifact@v7
-        with:
-          name: dist
-          path: dist/
 
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write # PyPI trusted publishing
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: dist
-          path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Release notes from the changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # The section for this version, up to the next "## " heading.
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no section for $version" >&2
+            exit 1
+          fi
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            dist/*
