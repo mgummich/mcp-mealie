@@ -6,7 +6,8 @@ registry and must be bumped by hand.
 
 1. Bump `__version__` and the two `version` fields in `server.json`.
 2. Add a section to `CHANGELOG.md`.
-3. Run the gates: `uv run pytest` and `./scripts/integration.sh` (needs Docker).
+3. Run the gates: `uv run --extra dev pytest` and `./scripts/integration.sh`
+   (needs Docker).
 4. Commit, then tag and push:
 
    ```bash

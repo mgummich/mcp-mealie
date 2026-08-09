@@ -44,7 +44,8 @@ async def test_read_tools(client):
     assert "items" in tags.data
 
     meals = await client.call_tool("get_todays_meals", {})
-    assert isinstance(meals.data, dict)
+    assert meals.data["date"] == date.today().isoformat()  # noqa: DTZ011
+    assert meals.data["count"] == len(meals.data["items"])
 
     books = await client.call_tool("list_cookbooks", {})
     assert "items" in books.data
@@ -63,10 +64,10 @@ async def test_write_roundtrip(client):
         },
     )
     slug = created.data["slug"]
-    assert set(created.data["tags"]) >= {"Integration Test", "Breakfast"}
-    assert len(created.data["ingredients"]) == 3
-
     try:
+        assert set(created.data["tags"]) >= {"Integration Test", "Breakfast"}
+        assert len(created.data["ingredients"]) == 3
+
         updated = await client.call_tool("update_recipe", {"slug": slug, "tags": ["Quick"]})
         # Tags must merge with the existing ones, not replace them.
         assert set(updated.data["tags"]) >= {"Integration Test", "Breakfast", "Quick"}
@@ -90,7 +91,7 @@ async def test_write_roundtrip(client):
         deleted_entry = await client.call_tool(
             "delete_meal_plan_entry", {"entry_id": entry.data["entry_id"]}
         )
-        assert isinstance(deleted_entry.data, dict)
+        assert deleted_entry.data == {"deleted": entry.data["entry_id"]}
 
         book = await client.call_tool(
             "create_cookbook",
@@ -113,4 +114,6 @@ async def test_write_roundtrip(client):
 
 async def test_parse_ingredients(client):
     parsed = await client.call_tool("parse_ingredients", {"lines": ["3 cups oats"]})
-    assert isinstance(parsed.data, dict | list)
+    items = parsed.data["items"]
+    assert len(items) == 1
+    assert items[0]["input"] == "3 cups oats"

@@ -2,6 +2,8 @@ services:
   mealie:
     image: ghcr.io/mealie-recipes/mealie:v2.8.0
     ports:
-      - "9925:9000"
+      # Not 9925: that is the port Mealie's own docs use, so a developer's
+      # real local instance would collide.
+      - "19925:9000"
     environment:
       ALLOW_SIGNUP: "false"
