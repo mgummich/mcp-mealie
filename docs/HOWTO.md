@@ -36,7 +36,7 @@ claude mcp add mealie \
   --env MEALIE_URL=$MEALIE_URL \
   --env MEALIE_API_TOKEN=$MEALIE_API_TOKEN \
   --env MEALIE_READ_ONLY=true \
-  -- uvx --from git+https://github.com/mgummich/mcp-mealie@v0.2.0 mcp-mealie
+  -- uvx --from git+https://github.com/mgummich/mcp-mealie@v0.2.1 mcp-mealie
 ```
 
 For Claude Desktop, Cursor, Windsurf, or Zed, the same three variables go into

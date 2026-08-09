@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-08-10
+
+### Changed
+
+- Releases are cut as GitHub Releases with the wheel and sdist attached,
+  instead of being published to PyPI. Installs read the tag directly, so the
+  tag is the distribution; the publish step needed a PyPI account that does
+  not exist and failed on 0.2.0 without uploading anything. `docs/RELEASING.md`
+  records what putting it on an index would take.
+- The release workflow reads its notes from the matching `CHANGELOG.md`
+  section and fails when there is none, rather than publishing an empty
+  release. Its three jobs collapse into one — they existed to hand artifacts
+  between runners for the upload that is now gone.
+
+### Fixed
+
+- The install tag in `README.md` and `docs/HOWTO.md` is pinned to
+  `__version__` by a test. Both files carry it since installs come from git,
+  and a release that bumped the version without touching them left a command
+  that looks current but installs the previous server.
+
 ## [0.2.0] - 2026-08-09
 
 ### Added
@@ -133,5 +154,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multi-day random meal planning built into the tools.
 - Bundled agent skill at `skills/mealie/SKILL.md`.
 
+[0.2.1]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.2.1
 [0.2.0]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.2.0
 [0.1.0]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.1.0
