@@ -30,6 +30,16 @@ def _parse_bool(name: str, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class Config:
+    """Validated runtime configuration, normally built via from_env().
+
+    Attributes:
+        url: Base URL of the Mealie instance, no trailing slash.
+        token: Long-lived Mealie API token.
+        read_only: When True, write tools are not registered at all.
+        verify_ssl: Verify TLS certificates; disable for self-signed certs.
+        log_level: Python logging level name, e.g. "INFO" or "DEBUG".
+    """
+
     url: str
     token: str
     read_only: bool = False
@@ -38,6 +48,15 @@ class Config:
 
     @classmethod
     def from_env(cls) -> Config:
+        """Build a Config from MEALIE_* environment variables.
+
+        Returns:
+            A validated Config; MEALIE_URL is stripped of trailing slashes.
+
+        Raises:
+            ConfigError: If MEALIE_URL or MEALIE_API_TOKEN is missing or
+                malformed, or a boolean variable has an unrecognized value.
+        """
         url = (os.environ.get("MEALIE_URL") or "").strip().rstrip("/")
         if not url:
             raise ConfigError("MEALIE_URL is required (e.g. https://mealie.example.com)")

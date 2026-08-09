@@ -34,6 +34,14 @@ class MealieClient:
     """
 
     def __init__(self, url: str, token: str, verify_ssl: bool = True) -> None:
+        """Set up the HTTP client; no request is made until the first call.
+
+        Args:
+            url: Base URL of the Mealie instance, no trailing slash.
+            token: Long-lived Mealie API token, sent as a bearer token.
+            verify_ssl: Verify TLS certificates. Disable only for
+                self-signed homelab setups.
+        """
         self.url = url
         self._http = httpx.AsyncClient(
             base_url=url,
@@ -46,6 +54,7 @@ class MealieClient:
         self._taxonomy: dict[str, dict[str, dict]] = {}
 
     async def aclose(self) -> None:
+        """Close the underlying HTTP connection pool."""
         await self._http.aclose()
 
     # ------------------------------------------------------------------ HTTP
@@ -59,9 +68,27 @@ class MealieClient:
         json: Any = None,
         not_found: str | None = None,
     ) -> Any:
-        """Issue a request and return decoded JSON, or raise ToolError.
+        """Issue a request and return the decoded response body.
 
-        `not_found` is the message used for a 404, e.g. "recipe 'x' not found".
+        GETs are retried on transport errors and 5xx responses (up to
+        GET_RETRIES times with linear backoff); writes never are, because
+        Mealie has no idempotency key and a retried create would duplicate
+        the recipe.
+
+        Args:
+            method: HTTP method, case-insensitive.
+            path: API path relative to the base URL, e.g. "/api/recipes".
+            params: Query parameters; None values are dropped.
+            json: JSON-serializable request body.
+            not_found: Message to raise on a 404, e.g. "recipe 'x' not found".
+
+        Returns:
+            Decoded JSON on success. None for 204 or an empty body. A bare
+            string for the create endpoints that return a quoted slug.
+
+        Raises:
+            ToolError: On any HTTP error status or if Mealie is unreachable
+                after retries.
         """
         method = method.upper()
         attempts = GET_RETRIES + 1 if method == "GET" else 1
@@ -115,7 +142,17 @@ class MealieClient:
     # --------------------------------------------------------------- caches
 
     async def recipe_id(self, slug: str) -> str:
-        """Resolve a recipe slug to its UUID, caching the result."""
+        """Resolve a recipe slug to its UUID, caching the result.
+
+        Args:
+            slug: Recipe slug as shown by search_recipes.
+
+        Returns:
+            The recipe's UUID.
+
+        Raises:
+            ToolError: If no recipe has that slug.
+        """
         if slug not in self._slug_ids:
             recipe = await self.request(
                 "GET", f"/api/recipes/{slug}", not_found=f"recipe {slug!r} not found"
@@ -128,9 +165,22 @@ class MealieClient:
     ) -> tuple[list[dict], list[str]]:
         """Map plain names to Mealie taxonomy objects.
 
-        Mealie's RecipeTag/RecipeCategory require both name and slug, so a bare
-        ["Vegan"] cannot be written through. Returns the objects plus the names
-        that had to be created, so tools can report them.
+        Mealie's RecipeTag/RecipeCategory require both name and slug, so a
+        bare ["Vegan"] cannot be written through. Matching is case-insensitive
+        against a cached snapshot of the resource.
+
+        Args:
+            resource: Key into TAXONOMY_PATHS ("tags", "categories", ...).
+            names: Plain names to resolve, e.g. ["Vegan", "Quick"].
+            create_missing: Create names that don't exist yet instead of
+                raising.
+
+        Returns:
+            A tuple of (resolved objects, names that had to be created), the
+            latter so tools can report what was new.
+
+        Raises:
+            ToolError: If a name does not exist and create_missing is False.
         """
         if not names:
             return [], []
@@ -152,10 +202,18 @@ class MealieClient:
         return resolved, created
 
     async def taxonomy_slugs(self, resource: str, names: list[str]) -> list[str]:
-        """Map names to slugs for filtering. Unknown names slugify optimistically.
+        """Map names to slugs for filtering.
 
         Filtering by a tag that does not exist should return no recipes, not
-        raise — so this never creates and never errors.
+        raise — so this never creates and never errors; unknown names are
+        slugified optimistically instead.
+
+        Args:
+            resource: Key into TAXONOMY_PATHS ("tags", "categories", ...).
+            names: Plain names, matched case-insensitively.
+
+        Returns:
+            One slug per input name, in order.
         """
         if not names:
             return []
@@ -174,10 +232,23 @@ class MealieClient:
             }
 
     def forget_taxonomy(self, resource: str) -> None:
+        """Drop the cached snapshot for a resource after an external change.
+
+        Args:
+            resource: Key into TAXONOMY_PATHS ("tags", "categories", ...).
+        """
         self._taxonomy.pop(resource, None)
 
 
 def slugify(name: str) -> str:
+    """Approximate Mealie's slug format: lowercase, hyphen-separated ASCII.
+
+    Args:
+        name: Human-readable name, e.g. "Comfort Food".
+
+    Returns:
+        The slugified form, e.g. "comfort-food".
+    """
     return re.sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")
 
 

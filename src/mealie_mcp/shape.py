@@ -17,7 +17,14 @@ def _clean(data: dict) -> dict:
 
 
 def recipe_summary(recipe: dict) -> dict:
-    """Search and list results: enough to pick one and fetch it."""
+    """Shape one search/list result: enough to pick a recipe and fetch it.
+
+    Args:
+        recipe: A raw Mealie recipe object (full or summary form).
+
+    Returns:
+        Dict with slug, name, and description; empty fields dropped.
+    """
     return _clean(
         {
             "slug": recipe.get("slug"),
@@ -28,7 +35,18 @@ def recipe_summary(recipe: dict) -> dict:
 
 
 def ingredient(item: dict) -> str | dict:
-    """Prefer Mealie's own display string; fall back to assembling one."""
+    """Flatten one ingredient to a display string.
+
+    Prefers Mealie's own precomputed "display" field; falls back to
+    assembling quantity, unit, food, and note by hand.
+
+    Args:
+        item: A raw RecipeIngredient object, or already a plain string.
+
+    Returns:
+        A human-readable line like "2 cup flour"; empty string if the
+        ingredient carries no text at all.
+    """
     if isinstance(item, str):
         return item
 
@@ -57,6 +75,14 @@ def _format_quantity(quantity: Any) -> str | None:
 
 
 def instruction(step: dict) -> str:
+    """Flatten one instruction step to "title: text", or just the text.
+
+    Args:
+        step: A raw RecipeStep object, or already a plain string.
+
+    Returns:
+        The step as a single string.
+    """
     if isinstance(step, str):
         return step
     title = (step.get("title") or "").strip()
@@ -65,11 +91,31 @@ def instruction(step: dict) -> str:
 
 
 def names(items: list[dict] | None) -> list[str]:
+    """Extract the "name" field from a list of taxonomy objects.
+
+    Args:
+        items: Raw tag/category/tool objects; None tolerated.
+
+    Returns:
+        The non-empty names, in order.
+    """
     return [i["name"] for i in (items or []) if isinstance(i, dict) and i.get("name")]
 
 
 def recipe_detail(recipe: dict) -> dict:
-    """The curated read view. Raw payload is still reachable via full=true."""
+    """Shape the curated read view of one recipe.
+
+    This is the cut that turns a 2-3k-token payload into a few hundred.
+    The raw payload is still reachable via get_recipe(full=true).
+
+    Args:
+        recipe: A raw Mealie recipe object.
+
+    Returns:
+        Dict with name, slug, times, flattened ingredients/instructions,
+        tag/category names, source URL, rating, and notes; empty fields
+        dropped.
+    """
     return _clean(
         {
             "name": recipe.get("name"),
@@ -94,6 +140,15 @@ def recipe_detail(recipe: dict) -> dict:
 
 
 def meal_plan_entry(entry: dict) -> dict:
+    """Shape one meal plan entry.
+
+    Args:
+        entry: A raw ReadPlanEntry object.
+
+    Returns:
+        Dict with entry_id, date, meal type, and either the linked recipe's
+        slug and name or the free-text title; empty fields dropped.
+    """
     recipe = entry.get("recipe") or {}
     return _clean(
         {
@@ -109,6 +164,15 @@ def meal_plan_entry(entry: dict) -> dict:
 
 
 def cookbook(book: dict) -> dict:
+    """Shape one cookbook.
+
+    Args:
+        book: A raw ReadCookBook object.
+
+    Returns:
+        Dict with cookbook_id, name, slug, description, query_filter, and
+        public flag; empty fields dropped.
+    """
     return _clean(
         {
             "cookbook_id": book.get("id"),
@@ -122,6 +186,15 @@ def cookbook(book: dict) -> dict:
 
 
 def parsed_ingredient(parsed: dict) -> dict:
+    """Shape one result from Mealie's ingredient parser.
+
+    Args:
+        parsed: A raw ParsedIngredient object.
+
+    Returns:
+        Dict with the original input line, quantity, unit and food names,
+        note, and average confidence; empty fields dropped.
+    """
     item = parsed.get("ingredient") or {}
     return _clean(
         {
@@ -136,13 +209,32 @@ def parsed_ingredient(parsed: dict) -> dict:
 
 
 def taxonomy_item(item: dict) -> dict:
+    """Shape one tag/category/food/unit/tool down to id, name, and slug.
+
+    Args:
+        item: A raw taxonomy object.
+
+    Returns:
+        Dict with id, name, and slug; empty fields dropped.
+    """
     return _clean(
         {"id": item.get("id"), "name": item.get("name"), "slug": item.get("slug")}
     )
 
 
 def paginated(page: dict, shaper: Callable[[dict], Any], *, page_number: int = 1) -> dict:
-    """Return shaped items plus a one-line hint, never the raw envelope."""
+    """Shape a paginated response: items plus a hint, never the raw envelope.
+
+    Args:
+        page: A raw Mealie pagination envelope with "items" and "total".
+        shaper: Function applied to each item, e.g. recipe_summary.
+        page_number: The page that was requested, used to phrase the
+            "pass page=N+1 for more" hint.
+
+    Returns:
+        Dict with items, count, and — when the server reports more rows than
+        were returned — total and a one-line pagination note.
+    """
     items = [shaper(i) for i in page.get("items") or []]
     total = page.get("total")
     result: dict[str, Any] = {"items": items, "count": len(items)}

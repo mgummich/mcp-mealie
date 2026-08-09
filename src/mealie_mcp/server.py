@@ -23,13 +23,29 @@ _client: MealieClient | None = None
 
 
 def get_client() -> MealieClient:
+    """Return the process-wide client created by the server lifespan.
+
+    Tool modules receive this function, not the client itself, because the
+    client only exists while the lifespan is running.
+
+    Returns:
+        The live MealieClient.
+
+    Raises:
+        RuntimeError: If called outside a running server lifespan.
+    """
     if _client is None:  # pragma: no cover - only reachable on misuse
         raise RuntimeError("client is not initialized; the server lifespan did not run")
     return _client
 
 
 def configure_logging(level: str) -> None:
-    """Log to stderr only. Under stdio transport, stdout is the protocol."""
+    """Log to stderr only. Under stdio transport, stdout is the protocol.
+
+    Args:
+        level: Logging level name, e.g. "INFO"; unknown names fall back
+            to INFO.
+    """
     logging.basicConfig(
         stream=sys.stderr,
         level=getattr(logging, level, logging.INFO),
@@ -42,6 +58,16 @@ async def probe(client: MealieClient) -> tuple[str, str]:
 
     /api/app/about needs no authentication, so it proves reachability and
     version only — /api/users/self is what actually validates the token.
+
+    Args:
+        client: The client to probe with.
+
+    Returns:
+        A tuple of (Mealie version, authenticated username) for logging.
+
+    Raises:
+        ConfigError: If the Mealie version is older than 2.0.
+        ToolError: If the instance is unreachable or the token is rejected.
     """
     about = await client.request("GET", "/api/app/about")
     version = str((about or {}).get("version") or "unknown")
@@ -59,6 +85,16 @@ async def probe(client: MealieClient) -> tuple[str, str]:
 
 
 def build_server(config: Config) -> FastMCP:
+    """Assemble the FastMCP server: lifespan-managed client, tools registered.
+
+    Args:
+        config: Validated configuration; read_only controls whether write
+            tools are registered at all.
+
+    Returns:
+        The server, ready for .run() or an in-process fastmcp.Client.
+    """
+
     @asynccontextmanager
     async def lifespan(_server: FastMCP):
         global _client
@@ -77,6 +113,12 @@ def build_server(config: Config) -> FastMCP:
 
 
 def main() -> None:
+    """Entry point for the mcp-mealie console script.
+
+    Validates the environment and probes Mealie before starting the stdio
+    transport, so a misconfiguration surfaces as one clear message on stderr
+    and exit code 2 instead of every tool call failing separately.
+    """
     try:
         config = Config.from_env()
     except ConfigError as exc:
