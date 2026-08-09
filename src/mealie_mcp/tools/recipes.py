@@ -349,6 +349,11 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
 
         Notes are {"title": ..., "text": ...} objects; a plain string becomes
         an untitled note. Rating is 0-5.
+
+        Passing name renames the recipe, and Mealie re-derives the slug from
+        it: the old slug is a 404 from then on. The returned recipe carries
+        the new slug plus renamed_from — use that slug for anything you do
+        next, above all set_recipe_image.
         """
         client = get_client()
         current = await client.request(
@@ -395,11 +400,22 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         if not payload:
             return {"slug": slug, "note": "nothing to update — no fields were provided"}
 
-        await client.request(
+        patched = await client.request(
             "PATCH", f"/api/recipes/{slug}", json=payload, not_found=f"recipe {slug!r} not found"
         )
+        # Mealie re-derives the slug from the name, so a rename turns the slug
+        # we were called with into a 404 — for the read-back below and for
+        # every later call the caller makes. Follow it and say so.
+        renamed_from = None
+        fresh = patched.get("slug") if isinstance(patched, dict) else None
+        if isinstance(fresh, str) and fresh != slug:
+            renamed_from, slug = slug, fresh
+
         result = await _fetch_recipe(client, slug)
-        return _with_created(result, created_tags, created_categories, created_tools)
+        result = _with_created(result, created_tags, created_categories, created_tools)
+        if renamed_from:
+            result = {**result, "renamed_from": renamed_from}
+        return result
 
     @mcp.tool
     async def set_recipe_image(slug: str, url: str) -> dict:

@@ -58,6 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `manage_taxonomy` `list` silently truncated at 200 rows. It now takes a
   `page` argument and reports the total plus the next page to request.
+- `update_recipe` failed with a 404 whenever it renamed a recipe. Mealie
+  re-derives the slug from the name, so the read-back after the write still
+  used the old one. It now follows the slug from the response and reports the
+  old one as `renamed_from`, so the caller knows what to use next.
 
 ## [0.1.0] - 2026-08-09
 

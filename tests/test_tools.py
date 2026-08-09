@@ -334,6 +334,43 @@ async def test_update_recipe_writes_notes_and_rating():
 
 
 @respx.mock
+async def test_update_recipe_follows_the_slug_through_a_rename():
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast", "name": "Roast"})
+    )
+    respx.patch(f"{BASE}/api/recipes/roast").mock(
+        # Mealie answers with the recipe as it is now — under its new slug.
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "sunday-roast"})
+    )
+    read_back = respx.get(f"{BASE}/api/recipes/sunday-roast").mock(
+        return_value=httpx.Response(
+            200, json={"id": "r1", "slug": "sunday-roast", "name": "Sunday roast"}
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("update_recipe", {"slug": "roast", "name": "Sunday roast"})
+
+    assert read_back.called, "read back under the old slug, which is a 404 after a rename"
+    assert result.data["slug"] == "sunday-roast"
+    assert result.data["renamed_from"] == "roast"
+
+
+@respx.mock
+async def test_update_recipe_keeps_the_slug_when_nothing_was_renamed():
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast", "name": "Roast"})
+    )
+    respx.patch(f"{BASE}/api/recipes/roast").mock(return_value=httpx.Response(200, json={}))
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("update_recipe", {"slug": "roast", "rating": 4})
+
+    assert result.data["slug"] == "roast"
+    assert "renamed_from" not in result.data
+
+
+@respx.mock
 async def test_bulk_tag_sends_resolved_objects_and_creates_missing_names():
     respx.get(f"{BASE}/api/organizers/tags").mock(
         return_value=httpx.Response(
