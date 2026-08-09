@@ -1,0 +1,29 @@
+title: mcp-mealie
+description: >-
+  A curated, token-efficient MCP server for Mealie recipes, meal plans,
+  cookbooks, and library cleanup.
+url: https://mgummich.github.io
+baseurl: /mcp-mealie
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+# Everything that is code, tests, or packaging is not part of the site.
+exclude:
+  - src/
+  - tests/
+  - scripts/
+  - .venv/
+  - .github/
+  - pyproject.toml
+  - uv.lock
+  - server.json
+  - CONTRIBUTING.md
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default

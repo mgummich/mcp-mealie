@@ -28,3 +28,8 @@ dist/
 # Build artifacts
 *.egg-info/
 .ruff_cache/
+
+# Jekyll (GitHub Pages)
+_site/
+.jekyll-cache/
+.jekyll-metadata
