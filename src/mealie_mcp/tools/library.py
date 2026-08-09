@@ -96,12 +96,9 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
                 counts.update({i["id"] for i in recipe.get(key) or [] if i.get("id")})
         else:
             singular = resource[:-1]  # foods -> food, units -> unit
-            slugs = [recipe.get("slug") for recipe in recipes]
-            details = await map_concurrent(
-                [partial(client.request, "GET", f"/api/recipes/{slug}") for slug in slugs]
-            )
-            for detail in details:
-                if isinstance(detail, BaseException) or not isinstance(detail, dict):
+            slugs = [recipe["slug"] for recipe in recipes if recipe.get("slug")]
+            for detail in await client.recipe_details(slugs):
+                if detail is None:
                     failed += 1
                     continue
                 counts.update(

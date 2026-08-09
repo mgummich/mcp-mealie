@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 from collections.abc import Awaitable, Callable
+from functools import partial
 from typing import Any
 
 import httpx
@@ -66,6 +67,7 @@ class MealieClient:
         )
         self._slug_ids: dict[str, str] = {}
         self._taxonomy: dict[str, dict[str, dict]] = {}
+        self._details: dict[str, dict] = {}
 
     async def aclose(self) -> None:
         """Close the underlying HTTP connection pool."""
@@ -132,6 +134,11 @@ class MealieClient:
                 await asyncio.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
                 continue
 
+            if method != "GET":
+                # Any write can change ingredients, so the cached recipe
+                # bodies are no longer trustworthy. Clearing on every write
+                # is cheaper than reasoning about which path touched what.
+                self._details.clear()
             return self._handle(response, not_found)
 
         raise ToolError(f"Mealie unreachable at {self.url}: {last_transport_error}")
@@ -311,6 +318,31 @@ class MealieClient:
             page += 1
         return items[:max_recipes], max(total, len(items))
 
+    async def recipe_details(self, slugs: list[str]) -> list[dict | None]:
+        """Fetch full recipe bodies for slugs, reusing ones already fetched.
+
+        The sweep is the expensive part of any ingredient-level report: one
+        request per recipe, and a library-wide run takes seconds. Foods and
+        units are two such reports over the same bodies, so the second one
+        should cost nothing. Any write clears the cache.
+
+        Args:
+            slugs: Recipe slugs, in the order the caller wants results.
+
+        Returns:
+            One entry per slug: the recipe body, or None if it could not be
+            read.
+        """
+        missing = [slug for slug in dict.fromkeys(slugs) if slug not in self._details]
+        if missing:
+            fetched = await map_concurrent(
+                [partial(self.request, "GET", f"/api/recipes/{slug}") for slug in missing]
+            )
+            for slug, result in zip(missing, fetched, strict=True):
+                if isinstance(result, dict):
+                    self._details[slug] = result
+        return [self._details.get(slug) for slug in slugs]
+
     def forget_recipe(self, slug: str) -> None:
         """Drop a cached slug -> UUID entry after a rename or delete.
 
@@ -318,6 +350,7 @@ class MealieClient:
             slug: The slug that no longer resolves.
         """
         self._slug_ids.pop(slug, None)
+        self._details.pop(slug, None)
 
     def forget_taxonomy(self, resource: str) -> None:
         """Drop the cached snapshot for a resource after an external change.
