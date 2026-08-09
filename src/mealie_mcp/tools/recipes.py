@@ -134,6 +134,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         tools: list[str] | None = None,
         foods: list[str] | None = None,
         require_all: bool = False,
+        fields: list[str] | None = None,
         page: int = 1,
         limit: int = 20,
     ) -> dict:
@@ -142,8 +143,23 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         Returns slim results (slug, name, description). Use get_recipe with a
         slug for full detail. Filtering happens server-side, so prefer filters
         over fetching many recipes and sorting them yourself.
+
+        Pass fields to change what each result carries — fields=["slug"] for a
+        bare list, or fields=["slug", "tags", "rating"] to sweep the library
+        without a get_recipe per hit. Valid: name, slug, description, yield,
+        prep_time, cook_time, total_time, tags, categories, tools, source_url,
+        rating. Ingredients, instructions, and notes are not in Mealie's
+        search payload; get_recipe is the only way to those.
         """
         client = get_client()
+        if fields:
+            unknown = [f for f in fields if f not in shape.SUMMARY_FIELDS]
+            if unknown:
+                raise ToolError(
+                    f"unknown fields {unknown} — search results can carry "
+                    f"{', '.join(shape.SUMMARY_FIELDS)}; use get_recipe for "
+                    "ingredients, instructions, or notes"
+                )
         params: dict[str, Any] = {"search": query, "page": page, "perPage": limit}
         if tags:
             params["tags"] = await client.taxonomy_slugs("tags", tags)
@@ -165,7 +181,12 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             params["requireAllFoods"] = require_all
 
         result = await client.request("GET", "/api/recipes", params=params)
-        return shape.paginated(result, shape.recipe_summary, page_number=page)
+        shaper = (
+            (lambda r: shape.pick(shape.recipe_detail(r), fields))
+            if fields
+            else shape.recipe_summary
+        )
+        return shape.paginated(result, shaper, page_number=page)
 
     @mcp.tool
     async def get_recipe(slug: str, full: bool = False, fields: list[str] | None = None) -> dict:

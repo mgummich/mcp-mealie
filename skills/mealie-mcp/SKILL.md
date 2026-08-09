@@ -1,5 +1,5 @@
 ---
-name: mealie
+name: mealie-mcp
 description: Use when planning meals, saving or editing recipes, or organizing a Mealie recipe library — covers weekly meal planning, importing and filing recipes, writing cookbook filters, authoring recipes from free text, and cleaning up duplicate foods, units, and tags.
 ---
 
@@ -73,6 +73,42 @@ first and pass the whole list back, not just the new items.
 To append a note, `get_recipe(slug, fields=["notes"])` first and pass the old
 notes plus the new one.
 
+## See what the library actually looks like
+
+Start a cleanup with the rollup, not with a scan. `library_stats(resource)`
+sweeps every recipe once, server-side, and returns each tag, category, tool,
+food, or unit with its `recipe_count`, sorted highest first, unused entries
+included.
+
+| Question | Call |
+| --- | --- |
+| Which tags are unused? | `library_stats("tags")` — read the zero-count rows |
+| Is this food safe to delete? | `library_stats("foods")` — `recipe_count: 0` |
+| Same recipe imported twice? | `find_duplicate_recipes()` |
+| Which source links are dead? | `check_recipe_links()` |
+
+Do not build this index yourself with one `search_recipes` per name — that is
+the pass `library_stats` replaces. `foods` and `units` are the slow ones: they
+need each recipe's ingredients, so that sweep is one request per recipe and
+honors `max_recipes`. Tags, categories, and tools come off the recipe list in a
+handful of requests.
+
+`find_duplicate_recipes` groups by name with punctuation and case ignored, so
+two different takes on "Pancakes" land in the same group — read the group
+before deleting anything.
+
+`check_recipe_links` probes source URLs from outside Mealie and reports dead
+ones; hosts that refuse the probe come back under `unverified_sources`, not
+`broken_sources`. Images are not probed — Mealie stores them itself — so what
+it reports is recipes with no image at all, repairable with
+`set_recipe_image(slug, url)`.
+
+To sweep the library for something these three don't cover, use
+`search_recipes(fields=[...])` rather than a `get_recipe` per hit:
+`search_recipes(fields=["slug", "tags", "rating"], limit=100)`. Ingredients,
+instructions, and notes are not in the search payload; those still need
+`get_recipe`.
+
 ## Tidy up the library
 
 `manage_taxonomy(resource, action, ...)` covers foods, units, labels, tags,
@@ -86,6 +122,21 @@ categories, and tools.
 | Label a food | `manage_taxonomy("foods", "update", item_id=..., data={"labelId": ...})` |
 | Fold a duplicate away | `manage_taxonomy("foods", "merge", item_id=<loser>, merge_into=<keeper>)` |
 | Remove | `manage_taxonomy("units", "delete", item_id=...)` |
+
+Every action except `list` takes `items` instead of the single-item arguments,
+and runs the whole batch in one call:
+
+```
+manage_taxonomy("foods", "update", items=[
+  {"item_id": "...", "name": "Scallion"},
+  {"item_id": "...", "data": {"labelId": "..."}},
+])
+```
+
+The reply splits `results` from `errors`, each error carrying the index and the
+item that failed, so one bad id doesn't strand the rest. Use the batch form
+whenever you have more than two changes queued — twenty-five renames are one
+call, not twenty-five.
 
 Notes:
 
@@ -105,10 +156,27 @@ Notes:
 A Mealie cookbook is a saved filter, not a folder. Its contents update
 automatically as recipes match.
 
+Pass names and let the server write the filter:
+
 ```
-create_cookbook(name="Weeknight Dinners",
-                query_filter='tags.name IN ["Quick"] AND recipeCategory.name IN ["Dinner"]')
+create_cookbook(name="Weeknight Dinners", tags=["Quick"], categories=["Dinner"])
 ```
+
+`require_all=True` switches from any-of (`IN`) to all-of (`CONTAINS ALL`).
+Names are matched to Mealie's stored casing on the way in, so `["quick"]` still
+produces a filter that matches.
+
+Reach for `query_filter` only for what names can't express — dates, ratings,
+mixed operators. It cannot be combined with the name lists:
+
+```
+create_cookbook(name="Recent Favorites",
+                query_filter='rating > 3 AND createdAt > "2026-01-01"')
+```
+
+To change a cookbook, use `update_cookbook(cookbook_id, ...)` — never delete
+and recreate, which throws away the id. It takes the same filter arguments, and
+only the fields you pass change; `query_filter=""` clears the filter entirely.
 
 Filter syntax:
 
