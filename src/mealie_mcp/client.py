@@ -19,9 +19,16 @@ RETRY_BACKOFF_SECONDS = 0.5
 TAXONOMY_PATHS = {
     "foods": "/api/foods",
     "units": "/api/units",
+    "labels": "/api/groups/labels",
     "tags": "/api/organizers/tags",
     "categories": "/api/organizers/categories",
     "tools": "/api/organizers/tools",
+}
+
+#: Resources with a server-side merge endpoint, and the body keys it wants.
+MERGE_KEYS = {
+    "foods": ("fromFood", "toFood"),
+    "units": ("fromUnit", "toUnit"),
 }
 
 

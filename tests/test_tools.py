@@ -28,6 +28,7 @@ READ_TOOLS = {
 WRITE_TOOLS = {
     "create_recipe",
     "update_recipe",
+    "set_recipe_image",
     "delete_recipe",
     "import_recipe_from_url",
     "add_meal_plan_entry",
@@ -76,9 +77,7 @@ async def test_cookbook_filter_examples_reach_the_model():
 async def test_delete_recipe_requires_a_matching_confirmation():
     async with Client(build_server(config())) as client:
         with pytest.raises(ToolError, match="does not match"):
-            await client.call_tool(
-                "delete_recipe", {"slug": "roast", "confirm_slug": "roats"}
-            )
+            await client.call_tool("delete_recipe", {"slug": "roast", "confirm_slug": "roats"})
 
 
 async def test_taxonomy_writes_are_refused_in_read_only_mode():
@@ -195,9 +194,7 @@ async def test_search_by_unknown_food_returns_empty_not_error():
 @respx.mock
 async def test_search_by_food_filters_by_id():
     respx.get(f"{BASE}/api/foods").mock(
-        return_value=httpx.Response(
-            200, json={"items": [{"id": "f9", "name": "Chicken"}]}
-        )
+        return_value=httpx.Response(200, json={"items": [{"id": "f9", "name": "Chicken"}]})
     )
     recipes = respx.get(f"{BASE}/api/recipes").mock(
         return_value=httpx.Response(200, json={"items": [], "total": 0})
@@ -228,9 +225,7 @@ async def test_random_meal_plan_reports_partial_success():
 
 @respx.mock
 async def test_random_meal_plan_raises_when_nothing_landed():
-    respx.post(f"{BASE}/api/households/mealplans/random").mock(
-        return_value=httpx.Response(500)
-    )
+    respx.post(f"{BASE}/api/households/mealplans/random").mock(return_value=httpx.Response(500))
 
     async with Client(build_server(config())) as client:
         with pytest.raises(ToolError, match="stopped at 2026-09-01"):
@@ -239,9 +234,98 @@ async def test_random_meal_plan_raises_when_nothing_landed():
             )
 
 
+@respx.mock
+async def test_taxonomy_list_paginates_and_reports_the_total():
+    # 400 foods behind a 200-row page must not read as "that is all of them".
+    route = respx.get(f"{BASE}/api/foods").mock(
+        return_value=httpx.Response(
+            200, json={"items": [{"id": "f1", "name": "Flour"}], "total": 400}
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "manage_taxonomy", {"resource": "foods", "action": "list", "page": 2}
+        )
+
+    assert route.calls.last.request.url.params["page"] == "2"
+    assert result.data["total"] == 400
+    assert "page=3" in result.data["note"]
+
+
+@respx.mock
+async def test_taxonomy_update_patches_onto_the_current_row():
+    # Mealie's PUT replaces the row; a bare {description} would blank the name.
+    respx.get(f"{BASE}/api/foods/f1").mock(
+        return_value=httpx.Response(200, json={"id": "f1", "name": "Flour"})
+    )
+    put = respx.put(f"{BASE}/api/foods/f1").mock(
+        return_value=httpx.Response(
+            200, json={"id": "f1", "name": "Flour", "description": "Plain white."}
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "manage_taxonomy",
+            {
+                "resource": "foods",
+                "action": "update",
+                "item_id": "f1",
+                "data": {"description": "Plain white."},
+            },
+        )
+
+    assert put.calls.last.request.read() == (
+        b'{"id":"f1","name":"Flour","description":"Plain white."}'
+    )
+    assert result.data["description"] == "Plain white."
+
+
+@respx.mock
+async def test_taxonomy_merge_sends_the_resource_specific_keys():
+    merge = respx.put(f"{BASE}/api/units/merge").mock(
+        return_value=httpx.Response(200, json={"id": "u2", "name": "gram"})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "manage_taxonomy",
+            {"resource": "units", "action": "merge", "item_id": "u1", "merge_into": "u2"},
+        )
+
+    assert merge.calls.last.request.read() == b'{"fromUnit":"u1","toUnit":"u2"}'
+    assert result.data["merged"] == "u1"
+
+
+async def test_taxonomy_merge_is_refused_where_mealie_has_no_endpoint():
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="only supported for foods, units"):
+            await client.call_tool(
+                "manage_taxonomy",
+                {"resource": "tags", "action": "merge", "item_id": "t1", "merge_into": "t2"},
+            )
+
+
+@respx.mock
+async def test_update_recipe_writes_notes_and_rating():
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast", "name": "Roast"})
+    )
+    patch = respx.patch(f"{BASE}/api/recipes/roast").mock(return_value=httpx.Response(200, json={}))
+
+    async with Client(build_server(config())) as client:
+        await client.call_tool(
+            "update_recipe",
+            {"slug": "roast", "notes": ["Rest 10 min."], "rating": 4},
+        )
+
+    assert patch.calls.last.request.read() == (
+        b'{"notes":[{"title":"","text":"Rest 10 min."}],"rating":4.0}'
+    )
+
+
 async def test_get_recipe_rejects_an_unknown_field():
     async with Client(build_server(config())) as client:
         with pytest.raises(ToolError, match="unknown fields"):
-            await client.call_tool(
-                "get_recipe", {"slug": "roast", "fields": ["ingredents"]}
-            )
+            await client.call_tool("get_recipe", {"slug": "roast", "fields": ["ingredents"]})

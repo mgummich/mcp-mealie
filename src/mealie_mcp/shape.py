@@ -129,6 +129,7 @@ def recipe_detail(recipe: dict) -> dict:
             "instructions": [instruction(s) for s in recipe.get("recipeInstructions") or []],
             "tags": names(recipe.get("tags")),
             "categories": names(recipe.get("recipeCategory")),
+            "tools": names(recipe.get("tools")),
             "source_url": recipe.get("orgURL"),
             "rating": recipe.get("rating"),
             "notes": [
@@ -152,6 +153,7 @@ DETAIL_FIELDS = (
     "instructions",
     "tags",
     "categories",
+    "tools",
     "source_url",
     "rating",
     "notes",
@@ -244,16 +246,29 @@ def parsed_ingredient(parsed: dict) -> dict:
 
 
 def taxonomy_item(item: dict) -> dict:
-    """Shape one tag/category/food/unit/tool down to id, name, and slug.
+    """Shape one tag/category/food/unit/label/tool.
+
+    Tags and categories carry only id/name/slug, so the food- and unit-only
+    fields fall away for them; _clean does the trimming.
 
     Args:
         item: A raw taxonomy object.
 
     Returns:
-        Dict with id, name, and slug; empty fields dropped.
+        Dict with id, name, slug, and — where present — description,
+        plural_name, abbreviation, label, and aliases; empty fields dropped.
     """
     return _clean(
-        {"id": item.get("id"), "name": item.get("name"), "slug": item.get("slug")}
+        {
+            "id": item.get("id"),
+            "name": item.get("name"),
+            "slug": item.get("slug"),
+            "description": item.get("description"),
+            "plural_name": item.get("pluralName"),
+            "abbreviation": item.get("abbreviation"),
+            "label": (item.get("label") or {}).get("name"),
+            "aliases": names(item.get("aliases")),
+        }
     )
 
 

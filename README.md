@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/mcp-mealie)](https://pypi.org/project/mcp-mealie/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-Eighteen curated tools over recipes, meal plans, and cookbooks, with responses
+Nineteen curated tools over recipes, meal plans, and cookbooks, with responses
 trimmed hard enough that a recipe costs a few hundred tokens instead of a few
 thousand.
 
@@ -67,7 +67,7 @@ startup error rather than a silent false.
 
 | Category | Tools |
 | --- | --- |
-| 🥘 **Recipes** | `search_recipes` · `get_recipe` · `suggest_recipes` · `create_recipe` · `update_recipe` · `delete_recipe` · `import_recipe_from_url` |
+| 🥘 **Recipes** | `search_recipes` · `get_recipe` · `suggest_recipes` · `create_recipe` · `update_recipe` · `set_recipe_image` · `delete_recipe` · `import_recipe_from_url` |
 | 📅 **Meal plans** | `get_meal_plan` · `get_todays_meals` · `add_meal_plan_entry` · `delete_meal_plan_entry` · `random_meal_plan` |
 | 📚 **Cookbooks** | `list_cookbooks` · `get_cookbook_recipes` · `create_cookbook` · `delete_cookbook` |
 | 🔧 **Other** | `parse_ingredients` · `manage_taxonomy` |
@@ -81,6 +81,8 @@ Once connected, ask in plain language — the agent picks the tools:
 > 💬 *Import https://example.com/that-curry-recipe and tag it "Weeknight".*
 >
 > 💬 *Plan a random week of dinners, no repeats from last week.*
+>
+> 💬 *I have "scallion" and "spring onion" as separate foods — merge them.*
 
 ### ✨ Things it does for you
 
@@ -91,8 +93,13 @@ Once connected, ask in plain language — the agent picks the tools:
   Pass `["Vegan"]` and the server resolves or creates it, then tells you which
   ones were new.
 - **Updates don't wipe tags.** Mealie's PATCH replaces list fields wholesale.
-  `update_recipe` merges tags and categories by default; pass `replace_tags`
-  to overwrite.
+  `update_recipe` merges tags, categories, and tools by default; pass
+  `replace_tags` to overwrite.
+- **Taxonomy cleanup without a script.** `manage_taxonomy` lists (paged, with
+  the total), creates, renames, updates, and deletes foods, units, labels,
+  tags, categories, and tools — and merges duplicate foods or units through
+  Mealie's own merge endpoints, so every recipe that used the loser is
+  repointed.
 - **A random week is one call.** Mealie's random endpoint fills one day per
   request. `random_meal_plan` loops for you, capped at 14 days.
 
