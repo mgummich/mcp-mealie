@@ -79,6 +79,11 @@ need every recipe's ingredients, so that sweep is one request per recipe and
 honors `max_recipes`. Tags, categories and tools come off the recipe list in a
 handful of requests.
 
+What comes back is the fifty most-used items, the total count of used ones,
+and every unused item — the unused list being the one you act on. Raise `top`
+if you want the full ranking; each row carries a UUID, which is why the tail
+is not there by default.
+
 ## 4. Turn on writes
 
 Remove `MEALIE_READ_ONLY` and restart the client. Useful first jobs, roughly
@@ -92,6 +97,14 @@ Pass `replace_tags=True` to overwrite instead. If the scraper missed the
 photo, `set_recipe_image(slug, url)` fetches it from the web, and
 `upload_recipe_image(slug, path)` sends a file from the machine the server
 runs on.
+
+Two things about that pair are worth knowing before they surprise you. Sites
+that build their page in the browser leave the scraper with nothing: the
+import still succeeds, but the recipe comes back empty and the response says
+so — fill it in with `update_recipe(ingredients=[...], instructions=[...])`,
+which takes plain text. And renaming a recipe changes its slug, because Mealie
+derives one from the other. The response carries the new slug; use it for
+every call after that, as the old one stops resolving.
 
 **File many recipes at once.** `bulk_tag_recipes(slugs, tags=["Weeknight"],
 categories=["Dinner"])` runs Mealie's bulk endpoints, so retagging forty

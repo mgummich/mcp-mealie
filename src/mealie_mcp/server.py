@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.server.middleware import Middleware
 
 from .client import MealieClient
 from .config import Config, ConfigError
@@ -84,6 +85,30 @@ async def probe(client: MealieClient) -> tuple[str, str]:
     return version, username
 
 
+class SendResultsOnce(Middleware):
+    """Send each tool result once, as JSON text, not twice.
+
+    MCP returns a tool's value both as a text block and as structuredContent,
+    and both cross the wire. Every field is therefore paid for twice by a
+    client that reads the text — on a library-wide sweep that is thousands of
+    tokens of exact duplicate. The text block is what every client
+    understands, so the structured copy goes.
+
+    The output schemas here say no more than "an object", so dropping them
+    costs nothing — and a declared schema is what obliges the server to send
+    structuredContent in the first place.
+    """
+
+    async def on_list_tools(self, context, call_next):
+        tools = await call_next(context)
+        return [tool.model_copy(update={"output_schema": None}) for tool in tools]
+
+    async def on_call_tool(self, context, call_next):
+        result = await call_next(context)
+        result.structured_content = None
+        return result
+
+
 def build_server(config: Config) -> FastMCP:
     """Assemble the FastMCP server: lifespan-managed client, tools registered.
 
@@ -107,6 +132,7 @@ def build_server(config: Config) -> FastMCP:
             _client = None
 
     mcp = FastMCP(name="mealie", lifespan=lifespan)
+    mcp.add_middleware(SendResultsOnce())
     for module in (recipes, mealplan, cookbooks, library, admin):
         module.register(mcp, get_client, config.read_only)
     return mcp

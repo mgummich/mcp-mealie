@@ -7,6 +7,7 @@ import json
 import httpx
 import pytest
 import respx
+from conftest import data
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
@@ -195,8 +196,8 @@ async def test_search_by_unknown_food_returns_empty_not_error():
     async with Client(build_server(config())) as client:
         result = await client.call_tool("search_recipes", {"foods": ["Unicorn Meat"]})
 
-    assert result.data["count"] == 0
-    assert "Unicorn Meat" in result.data["note"]
+    assert data(result)["count"] == 0
+    assert "Unicorn Meat" in data(result)["note"]
 
 
 @respx.mock
@@ -227,8 +228,8 @@ async def test_random_meal_plan_reports_partial_success():
             "random_meal_plan", {"start_date": "2026-09-01", "end_date": "2026-09-02"}
         )
 
-    assert result.data["count"] == 1
-    assert "stopped at 2026-09-02" in result.data["failed"]
+    assert data(result)["count"] == 1
+    assert "stopped at 2026-09-02" in data(result)["failed"]
 
 
 @respx.mock
@@ -257,8 +258,8 @@ async def test_taxonomy_list_paginates_and_reports_the_total():
         )
 
     assert route.calls.last.request.url.params["page"] == "2"
-    assert result.data["total"] == 400
-    assert "page=3" in result.data["note"]
+    assert data(result)["total"] == 400
+    assert "page=3" in data(result)["note"]
 
 
 @respx.mock
@@ -287,7 +288,7 @@ async def test_taxonomy_update_patches_onto_the_current_row():
     assert put.calls.last.request.read() == (
         b'{"id":"f1","name":"Flour","description":"Plain white."}'
     )
-    assert result.data["description"] == "Plain white."
+    assert data(result)["description"] == "Plain white."
 
 
 @respx.mock
@@ -303,7 +304,7 @@ async def test_taxonomy_merge_sends_the_resource_specific_keys():
         )
 
     assert merge.calls.last.request.read() == b'{"fromUnit":"u1","toUnit":"u2"}'
-    assert result.data["merged"] == "u1"
+    assert data(result)["merged"] == "u1"
 
 
 async def test_taxonomy_merge_is_refused_where_mealie_has_no_endpoint():
@@ -334,6 +335,47 @@ async def test_update_recipe_writes_notes_and_rating():
 
 
 @respx.mock
+async def test_update_recipe_returns_the_new_slug_after_a_rename():
+    # Mealie derives the slug from the name, so a re-read of "roast" 404s.
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast", "name": "Roast"})
+    )
+    respx.patch(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(
+            200, json={"id": "r1", "slug": "sunday-roast", "name": "Sunday Roast"}
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("update_recipe", {"slug": "roast", "name": "Sunday Roast"})
+
+    assert data(result)["slug"] == "sunday-roast"
+
+
+@respx.mock
+async def test_import_flags_a_scrape_that_found_nothing():
+    respx.post(f"{BASE}/api/recipes/create/url").mock(
+        return_value=httpx.Response(201, json="tomatoes")
+    )
+    respx.get(f"{BASE}/api/recipes/tomatoes").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "slug": "tomatoes",
+                "name": "Tomatoes",
+                "recipeIngredient": [{"note": "Could not detect ingredients"}],
+                "recipeInstructions": [{"text": "Could not detect instructions"}],
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("import_recipe_from_url", {"url": "https://js.test/r"})
+
+    assert "no ingredients or instructions" in data(result)["note"]
+
+
+@respx.mock
 async def test_bulk_tag_sends_resolved_objects_and_creates_missing_names():
     respx.get(f"{BASE}/api/organizers/tags").mock(
         return_value=httpx.Response(
@@ -357,8 +399,8 @@ async def test_bulk_tag_sends_resolved_objects_and_creates_missing_names():
     assert body["recipes"] == ["roast", "stew"]
     # TagBase needs all three fields; a bare name is a 422.
     assert body["tags"][0] == {"id": "t1", "name": "Vegan", "slug": "vegan"}
-    assert result.data["recipes"] == 2
-    assert result.data["created"]["tags"] == ["Quick"]
+    assert data(result)["recipes"] == 2
+    assert data(result)["created"]["tags"] == ["Quick"]
 
 
 async def test_bulk_tag_refuses_a_call_that_would_do_nothing():
@@ -384,7 +426,7 @@ async def test_upload_recipe_image_sends_the_extension_field(tmp_path):
     body = upload.calls.last.request.read()
     assert b'name="extension"' in body and b".jpg" in body
     assert b"\xff\xd8\xff" in body
-    assert result.data["bytes"] == 3
+    assert data(result)["bytes"] == 3
 
 
 async def test_upload_recipe_image_rejects_a_non_image(tmp_path):
@@ -427,11 +469,63 @@ async def test_library_stats_rolls_up_tag_usage_in_one_call():
     async with Client(build_server(config())) as client:
         result = await client.call_tool("library_stats", {"resource": "tags"})
 
-    assert result.data["items"] == [
+    assert data(result)["items"] == [
         {"id": "t1", "name": "Dinner", "recipe_count": 2},
         {"id": "t2", "name": "Brunch", "recipe_count": 0},
     ]
-    assert result.data["unused"] == 1
+    assert data(result)["unused"] == 1
+
+
+@respx.mock
+async def test_library_stats_caps_the_used_tail_but_keeps_every_unused_row():
+    # Each row costs a UUID, and the long tail of used items is what nobody
+    # reads. The unused ones are the actionable list, so they all come back.
+    respx.get(f"{BASE}/api/recipes").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {"slug": f"r{i}", "name": f"R{i}", "tags": [{"id": f"t{i}", "name": f"T{i}"}]}
+                    for i in range(10)
+                ],
+                "total": 10,
+            },
+        )
+    )
+    respx.get(f"{BASE}/api/organizers/tags").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [{"id": f"t{i}", "name": f"T{i}"} for i in range(10)]
+                + [{"id": f"u{i}", "name": f"U{i}"} for i in range(5)]
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("library_stats", {"resource": "tags", "top": 3})
+
+    counts = [row["recipe_count"] for row in data(result)["items"]]
+    assert counts == [1, 1, 1, 0, 0, 0, 0, 0]
+    assert data(result)["used"] == 10
+    assert "3 most-used of 10" in data(result)["note"]
+
+
+@respx.mock
+async def test_tool_results_are_not_sent_twice():
+    # MCP ships the return value as text and as structuredContent both; the
+    # duplicate is pure token cost for a client that reads the text.
+    respx.get(f"{BASE}/api/recipes").mock(
+        return_value=httpx.Response(200, json={"items": [], "total": 0})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("search_recipes", {"query": "x"})
+        schemas = [t.outputSchema for t in await client.list_tools()]
+
+    assert result.structured_content is None
+    # A declared output schema is what obliges the server to send one.
+    assert not any(schemas)
 
 
 @respx.mock
@@ -459,7 +553,7 @@ async def test_library_stats_counts_a_repeated_food_once_per_recipe():
     async with Client(build_server(config())) as client:
         result = await client.call_tool("library_stats", {"resource": "foods"})
 
-    assert result.data["items"] == [{"id": "f1", "name": "Flour", "recipe_count": 1}]
+    assert data(result)["items"] == [{"id": "f1", "name": "Flour", "recipe_count": 1}]
 
 
 @respx.mock
@@ -481,8 +575,8 @@ async def test_find_duplicate_recipes_ignores_punctuation_and_case():
     async with Client(build_server(config())) as client:
         result = await client.call_tool("find_duplicate_recipes", {})
 
-    assert result.data["count"] == 1
-    assert {r["slug"] for r in result.data["groups"][0]["recipes"]} == {"chili", "chili-2"}
+    assert data(result)["count"] == 1
+    assert {r["slug"] for r in data(result)["groups"][0]["recipes"]} == {"chili", "chili-2"}
 
 
 @respx.mock
@@ -504,8 +598,8 @@ async def test_check_recipe_links_reports_dead_sources_and_blank_images():
     async with Client(build_server(config())) as client:
         result = await client.call_tool("check_recipe_links", {})
 
-    assert [b["slug"] for b in result.data["broken_sources"]] == ["gone"]
-    assert [m["slug"] for m in result.data["missing_images"]] == ["blank"]
+    assert [b["slug"] for b in data(result)["broken_sources"]] == ["gone"]
+    assert [m["slug"] for m in data(result)["missing_images"]] == ["blank"]
 
 
 @respx.mock
@@ -530,7 +624,7 @@ async def test_search_fields_projects_without_a_get_recipe_per_hit():
     async with Client(build_server(config())) as client:
         result = await client.call_tool("search_recipes", {"fields": ["slug", "tags"]})
 
-    assert result.data["items"] == [{"slug": "stew", "tags": ["Dinner"]}]
+    assert data(result)["items"] == [{"slug": "stew", "tags": ["Dinner"]}]
 
 
 async def test_search_rejects_fields_that_only_get_recipe_can_serve():
@@ -563,10 +657,10 @@ async def test_batch_taxonomy_update_reports_per_item_failures():
             },
         )
 
-    assert result.data["count"] == 1
-    assert result.data["results"][0]["name"] == "Scallion"
-    assert result.data["failed"] == 1
-    assert result.data["errors"][0]["index"] == 1
+    assert data(result)["count"] == 1
+    assert data(result)["results"][0]["name"] == "Scallion"
+    assert data(result)["failed"] == 1
+    assert data(result)["errors"][0]["index"] == 1
 
 
 @respx.mock
@@ -633,4 +727,4 @@ async def test_update_cookbook_keeps_the_id_and_patches_onto_the_current_row():
         "queryFilterString": "rating > 4",
         "public": False,
     }
-    assert result.data["cookbook_id"] == "c1"
+    assert data(result)["cookbook_id"] == "c1"
