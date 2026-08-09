@@ -237,3 +237,11 @@ async def test_random_meal_plan_raises_when_nothing_landed():
             await client.call_tool(
                 "random_meal_plan", {"start_date": "2026-09-01", "end_date": "2026-09-01"}
             )
+
+
+async def test_get_recipe_rejects_an_unknown_field():
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="unknown fields"):
+            await client.call_tool(
+                "get_recipe", {"slug": "roast", "fields": ["ingredents"]}
+            )

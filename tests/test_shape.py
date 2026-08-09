@@ -152,3 +152,20 @@ def test_taxonomy_page_shapes_to_id_name_slug():
 
     assert result["items"]
     assert all(set(item) <= {"id", "name", "slug"} for item in result["items"])
+
+
+def test_pick_narrows_to_the_requested_fields(recipe):
+    result = shape.pick(shape.recipe_detail(recipe), ["name", "ingredients"])
+
+    assert set(result) == {"name", "ingredients"}
+
+
+def test_pick_without_fields_is_a_passthrough(recipe):
+    detail = shape.recipe_detail(recipe)
+
+    assert shape.pick(detail, None) == detail
+    assert shape.pick(detail, []) == detail
+
+
+def test_detail_fields_matches_what_detail_can_return(recipe):
+    assert set(shape.recipe_detail(recipe)) <= set(shape.DETAIL_FIELDS)

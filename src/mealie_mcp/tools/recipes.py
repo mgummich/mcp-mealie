@@ -94,11 +94,16 @@ async def _ingredient_payload(client: MealieClient, items: list[Any]) -> list[di
     ]
 
 
-async def _fetch_recipe(client: MealieClient, slug: str, full: bool = False) -> dict:
+async def _fetch_recipe(
+    client: MealieClient,
+    slug: str,
+    full: bool = False,
+    fields: list[str] | None = None,
+) -> dict:
     recipe = await client.request(
         "GET", f"/api/recipes/{slug}", not_found=f"recipe {slug!r} not found"
     )
-    return recipe if full else shape.recipe_detail(recipe)
+    return shape.pick(recipe if full else shape.recipe_detail(recipe), fields)
 
 
 async def _taxonomy_payload(
@@ -155,14 +160,28 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         return shape.paginated(result, shape.recipe_summary, page_number=page)
 
     @mcp.tool
-    async def get_recipe(slug: str, full: bool = False) -> dict:
+    async def get_recipe(
+        slug: str, full: bool = False, fields: list[str] | None = None
+    ) -> dict:
         """Get one recipe by slug.
 
         Returns a trimmed view by default: ingredients, instructions, times,
         tags, source, rating, notes. Pass full=true for the raw Mealie payload
         (nutrition, assets, settings) — it is several times larger.
+
+        Pass fields to narrow it further, e.g. fields=["ingredients"] when you
+        only need a shopping list. Valid with the default view: name, slug,
+        description, yield, prep_time, cook_time, total_time, ingredients,
+        instructions, tags, categories, source_url, rating, notes.
         """
-        return await _fetch_recipe(get_client(), slug, full)
+        if fields and not full:
+            unknown = [f for f in fields if f not in shape.DETAIL_FIELDS]
+            if unknown:
+                raise ToolError(
+                    f"unknown fields {unknown} — valid fields are "
+                    f"{', '.join(shape.DETAIL_FIELDS)}"
+                )
+        return await _fetch_recipe(get_client(), slug, full, fields)
 
     @mcp.tool
     async def suggest_recipes(
