@@ -67,6 +67,16 @@ def _instruction_payload(steps: list[Any]) -> list[dict]:
     return out
 
 
+def _notes_payload(notes: list[Any]) -> list[dict]:
+    """Notes are {title, text} pairs; plain strings become untitled notes."""
+    return [
+        {"title": n.get("title") or "", "text": n.get("text") or ""}
+        if isinstance(n, dict)
+        else {"title": "", "text": str(n)}
+        for n in notes
+    ]
+
+
 async def _ingredient_payload(client: MealieClient, items: list[Any]) -> list[dict]:
     """Accept plain strings or structured objects, per item.
 
@@ -148,9 +158,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             # Foods have no slug, so this filter needs ids — and a food Mealie
             # has never heard of provably matches nothing.
             try:
-                resolved, _ = await client.resolve_taxonomy(
-                    "foods", foods, create_missing=False
-                )
+                resolved, _ = await client.resolve_taxonomy("foods", foods, create_missing=False)
             except ToolError as exc:
                 return {"items": [], "count": 0, "note": str(exc)}
             params["foods"] = [f["id"] for f in resolved]
@@ -160,9 +168,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         return shape.paginated(result, shape.recipe_summary, page_number=page)
 
     @mcp.tool
-    async def get_recipe(
-        slug: str, full: bool = False, fields: list[str] | None = None
-    ) -> dict:
+    async def get_recipe(slug: str, full: bool = False, fields: list[str] | None = None) -> dict:
         """Get one recipe by slug.
 
         Returns a trimmed view by default: ingredients, instructions, times,
@@ -172,14 +178,13 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         Pass fields to narrow it further, e.g. fields=["ingredients"] when you
         only need a shopping list. Valid with the default view: name, slug,
         description, yield, prep_time, cook_time, total_time, ingredients,
-        instructions, tags, categories, source_url, rating, notes.
+        instructions, tags, categories, tools, source_url, rating, notes.
         """
         if fields and not full:
             unknown = [f for f in fields if f not in shape.DETAIL_FIELDS]
             if unknown:
                 raise ToolError(
-                    f"unknown fields {unknown} — valid fields are "
-                    f"{', '.join(shape.DETAIL_FIELDS)}"
+                    f"unknown fields {unknown} — valid fields are {', '.join(shape.DETAIL_FIELDS)}"
                 )
         return await _fetch_recipe(get_client(), slug, full, fields)
 
@@ -302,15 +307,23 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         cook_time: str | None = None,
         tags: list[str] | None = None,
         categories: list[str] | None = None,
+        tools: list[str] | None = None,
+        notes: list[Any] | None = None,
+        rating: float | None = None,
         source_url: str | None = None,
         replace_tags: bool = False,
         replace_categories: bool = False,
+        replace_tools: bool = False,
     ) -> dict:
         """Update a recipe. Only the fields you pass are touched.
 
-        Tags and categories MERGE with what is already there; pass
-        replace_tags/replace_categories to overwrite instead. Ingredients and
-        instructions always replace the existing list — pass the whole list.
+        Tags, categories, and tools MERGE with what is already there; pass the
+        matching replace_* flag to overwrite instead. Ingredients,
+        instructions, and notes always replace the existing list — read the
+        recipe first and pass the whole list back.
+
+        Notes are {"title": ..., "text": ...} objects; a plain string becomes
+        an untitled note. Rating is 0-5.
         """
         client = get_client()
         current = await client.request(
@@ -334,6 +347,10 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             payload["recipeIngredient"] = await _ingredient_payload(client, ingredients)
         if instructions is not None:
             payload["recipeInstructions"] = _instruction_payload(instructions)
+        if notes is not None:
+            payload["notes"] = _notes_payload(notes)
+        if rating is not None:
+            payload["rating"] = rating
 
         created_tags: list[str] = []
         created_categories: list[str] = []
@@ -345,6 +362,10 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             payload["recipeCategory"] = _merge(
                 current.get("recipeCategory"), objects, replace_categories
             )
+        created_tools: list[str] = []
+        if tools is not None:
+            objects, created_tools = await client.resolve_taxonomy("tools", tools)
+            payload["tools"] = _merge(current.get("tools"), objects, replace_tools)
 
         if not payload:
             return {"slug": slug, "note": "nothing to update — no fields were provided"}
@@ -353,7 +374,22 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             "PATCH", f"/api/recipes/{slug}", json=payload, not_found=f"recipe {slug!r} not found"
         )
         result = await _fetch_recipe(client, slug)
-        return _with_created(result, created_tags, created_categories)
+        return _with_created(result, created_tags, created_categories, created_tools)
+
+    @mcp.tool
+    async def set_recipe_image(slug: str, url: str) -> dict:
+        """Set a recipe's image by scraping it from an image URL.
+
+        Replaces whatever is there, so this is also the repair for a recipe
+        that imported with a broken or missing image.
+        """
+        await get_client().request(
+            "POST",
+            f"/api/recipes/{slug}/image",
+            json={"url": url, "includeTags": False},
+            not_found=f"recipe {slug!r} not found",
+        )
+        return {"slug": slug, "image_url": url}
 
     @mcp.tool
     async def delete_recipe(slug: str, confirm_slug: str) -> dict:
@@ -396,13 +432,17 @@ def _merge(existing: list[dict] | None, incoming: list[dict], replace: bool) -> 
     return list(merged.values())
 
 
-def _with_created(result: dict, tags: list[str], categories: list[str]) -> dict:
+def _with_created(
+    result: dict, tags: list[str], categories: list[str], tools: list[str] | None = None
+) -> dict:
     """Surface auto-created taxonomy so a typo is visible immediately."""
     notes = []
     if tags:
         notes.append("created new tags: " + ", ".join(tags))
     if categories:
         notes.append("created new categories: " + ", ".join(categories))
+    if tools:
+        notes.append("created new tools: " + ", ".join(tools))
     if notes:
         result = {**result, "note": "; ".join(notes)}
     return result

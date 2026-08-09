@@ -31,8 +31,10 @@ async def client():
 
 
 async def test_all_tools_registered(client):
+    # The exact inventory is pinned in test_tools.py; a count repeated here
+    # only ever fails for having drifted. What this proves is that every
+    # module registers against a real instance.
     tools = {t.name for t in await client.list_tools()}
-    assert len(tools) == 18
     assert {"search_recipes", "create_recipe", "get_meal_plan", "list_cookbooks"} <= tools
 
 
