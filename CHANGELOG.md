@@ -40,11 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `update_recipe` accepts `notes`, `tools`, `rating`, and `replace_tools`.
 - `get_recipe` returns `tools` in the default view.
 
-### Changed
+### Removed
 
-- The bundled skill moved from `skills/mealie/` to `skills/mealie-mcp/` and is
-  now named `mealie-mcp`, so it no longer collides with other Mealie skills
-  installed alongside it.
+- The bundled skill (`skills/`). Its workflows moved to
+  [mealie-skill](https://github.com/mgummich/mealie-skill), which already
+  covers the same instance and now drives this server directly. Two skills for
+  one server meant two descriptions in every prompt and two copies of the same
+  guidance to keep in sync.
 
 ### Fixed
 
