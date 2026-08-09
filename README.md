@@ -2,9 +2,9 @@
 
 **An MCP server for [Mealie](https://mealie.io), built for agents rather than for API coverage.**
 
-[![PyPI](https://img.shields.io/pypi/v/mcp-mealie)](https://pypi.org/project/mcp-mealie/)
+[![Release](https://img.shields.io/github/v/tag/mgummich/mcp-mealie?label=release)](https://github.com/mgummich/mcp-mealie/releases)
 [![CI](https://github.com/mgummich/mcp-mealie/actions/workflows/ci.yml/badge.svg)](https://github.com/mgummich/mcp-mealie/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/pypi/pyversions/mcp-mealie)](https://pypi.org/project/mcp-mealie/)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-github.io-blue)](https://mgummich.github.io/mcp-mealie/)
 
@@ -20,12 +20,16 @@ Cursor, Windsurf, Zed.
 
 ## 🚀 Install
 
-No clone or virtualenv needed — `uvx` fetches it on demand.
+No clone or virtualenv needed — `uvx` builds it straight from the tag.
 
 ```json
 {
   "command": "uvx",
-  "args": ["mcp-mealie"],
+  "args": [
+    "--from",
+    "git+https://github.com/mgummich/mcp-mealie@v0.2.0",
+    "mcp-mealie"
+  ],
   "env": {
     "MEALIE_URL": "https://mealie.example.com",
     "MEALIE_API_TOKEN": "your-token"
@@ -34,6 +38,11 @@ No clone or virtualenv needed — `uvx` fetches it on demand.
 ```
 
 Create the token in Mealie under **Settings → API Tokens**.
+
+> [!NOTE]
+> Not on PyPI yet, so installs come from git — `uvx mcp-mealie` on its own
+> will not resolve. Keep the `@v0.2.0` pin: without a tag you get whatever
+> `main` holds the day `uv` resolves it.
 
 New to this? The [howto](https://mgummich.github.io/mcp-mealie/howto)
 ([`docs/HOWTO.md`](docs/HOWTO.md)) walks the whole path in order — token,
@@ -48,27 +57,39 @@ once. Full docs, including the
 claude mcp add mealie \
   --env MEALIE_URL=https://mealie.example.com \
   --env MEALIE_API_TOKEN=your-token \
-  -- uvx mcp-mealie
+  -- uvx --from git+https://github.com/mgummich/mcp-mealie@v0.2.0 mcp-mealie
 ```
 
 ### Claude Desktop, Cursor, Windsurf, Zed
 
 Add the JSON block above under `mcpServers` in the client's config file.
 
-### Updating
+### From a local clone
 
-`uvx` caches the version it first resolved, so a plain restart keeps running the
-old one. To move to the newest release:
+Working on the server itself? Point the client at the checkout and every edit
+lands on the next restart, no push and no reinstall:
 
 ```bash
-uvx mcp-mealie@latest        # one-off run on the newest version
-uv cache clean mcp-mealie    # drop the cached build, then restart the client
+claude mcp add mealie -- uv run --directory /path/to/mcp-mealie mcp-mealie
 ```
 
-To pin instead, put the version in the command — `uvx mcp-mealie@0.2.0`, or
-`"args": ["mcp-mealie@0.2.0"]` in the JSON block. Restart the MCP client after
-any change; it only reads the config at startup. Released versions are listed in
-the [changelog](https://mgummich.github.io/mcp-mealie/changelog).
+`--directory` is what makes `uv` resolve the project from the checkout rather
+than from the client's working directory. Credentials can come from the repo's
+own `.env` here, so the `--env` flags are optional.
+
+### Updating
+
+`uvx` caches the revision it first resolved, so a plain restart keeps running
+the old one. To move to a newer release, change the tag in the command and drop
+the cached build:
+
+```bash
+uv cache clean mcp-mealie    # then restart the MCP client
+```
+
+Restart the client after any config change; it only reads the file at startup.
+Released versions are listed in the
+[changelog](https://mgummich.github.io/mcp-mealie/changelog).
 
 ## ⚙️ Configuration
 
