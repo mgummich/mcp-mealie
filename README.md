@@ -27,7 +27,7 @@ No clone or virtualenv needed — `uvx` builds it straight from the tag.
   "command": "uvx",
   "args": [
     "--from",
-    "git+https://github.com/mgummich/mcp-mealie@v0.2.0",
+    "git+https://github.com/mgummich/mcp-mealie@v0.2.1",
     "mcp-mealie"
   ],
   "env": {
@@ -57,7 +57,7 @@ once. Full docs, including the
 claude mcp add mealie \
   --env MEALIE_URL=https://mealie.example.com \
   --env MEALIE_API_TOKEN=your-token \
-  -- uvx --from git+https://github.com/mgummich/mcp-mealie@v0.2.0 mcp-mealie
+  -- uvx --from git+https://github.com/mgummich/mcp-mealie@v0.2.1 mcp-mealie
 ```
 
 ### Claude Desktop, Cursor, Windsurf, Zed
