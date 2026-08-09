@@ -124,13 +124,18 @@ Once connected, ask in plain language — the agent picks the tools:
 - Write requests are never retried — Mealie has no idempotency key, and a
   retried create would duplicate the recipe.
 
-## 🎓 Bundled skill
+## 🎓 Agent skill
 
-`skills/mealie-mcp/SKILL.md` covers the workflows the tool list alone doesn't
-teach: planning a week without repeats, filing an imported recipe, building
-cookbook filters, and cleaning up a library rollup-first. Copy it into your
-agent's skills directory, or read it as documentation — it installs as
-`mealie-mcp`, so it won't collide with another Mealie skill.
+The workflows the tool list alone doesn't teach — planning a week without
+repeats, filing an imported recipe, writing cookbook filters, cleaning up a
+library rollup-first — live in [mealie-skill][skill], which detects this
+server and drives it. It builds for Claude Code, Antigravity, Cursor, and
+`AGENTS.md`.
+
+This repository no longer ships its own copy: two skills for one server meant
+two descriptions in every prompt and two places for the same guidance to drift.
+
+[skill]: https://github.com/mgummich/mealie-skill
 
 ## 🛠️ Development
 
