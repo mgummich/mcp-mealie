@@ -71,9 +71,10 @@ def test_ingredients_render_as_text(recipe):
 
 
 def test_ingredient_falls_back_when_mealie_has_no_display_string():
-    assert shape.ingredient(
-        {"quantity": 2.0, "unit": {"name": "cup"}, "food": {"name": "flour"}}
-    ) == "2 cup flour"
+    assert (
+        shape.ingredient({"quantity": 2.0, "unit": {"name": "cup"}, "food": {"name": "flour"}})
+        == "2 cup flour"
+    )
 
 
 def test_ingredient_drops_a_zero_quantity():

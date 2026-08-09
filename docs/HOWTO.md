@@ -42,6 +42,13 @@ claude mcp add mealie \
 For Claude Desktop, Cursor, Windsurf, or Zed, the same three variables go into
 the `mcpServers` block from the README.
 
+If you would rather not repeat the token in a client config, put the variables
+in a `.env` file instead — copy `.env.example` to `.env` in the directory the
+server is launched from and drop the `--env` flags. The server reads it at
+startup, searching upward from the working directory, and anything already set
+in the real environment wins over the file. Keep `.env` out of version control;
+the token in it is a live credential.
+
 With `MEALIE_READ_ONLY=true` the write tools are never registered — the model
 cannot call them by accident, because it cannot see them. Twelve read tools
 remain, which is enough for every question in step 3. Drop the variable once
@@ -95,10 +102,14 @@ the batch in one call, reporting per-item failures rather than stopping at the
 first bad id:
 
 ```python
-manage_taxonomy("foods", "update", items=[
-  {"item_id": "...", "name": "Scallion"},
-  {"item_id": "...", "data": {"labelId": "..."}},
-])
+manage_taxonomy(
+    "foods",
+    "update",
+    items=[
+        {"item_id": "...", "name": "Scallion"},
+        {"item_id": "...", "data": {"labelId": "..."}},
+    ],
+)
 ```
 
 **Build a cookbook.** A Mealie cookbook is a saved filter, not a folder — it
