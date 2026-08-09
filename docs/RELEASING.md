@@ -15,9 +15,24 @@ registry and must be bumped by hand.
    git push origin main v0.X.Y
    ```
 
-   The `Release` workflow builds and publishes to PyPI via trusted publishing
-   (configured on pypi.org under the project's Publishing settings: repo
-   `mgummich/mcp-mealie`, workflow `release.yml`, environment `pypi`).
+   The `Release` workflow builds and publishes to PyPI via trusted publishing.
+
+   > **PyPI is not configured yet.** The `publish` job fails on v0.2.0 with
+   > `invalid-publisher`: PyPI has no publisher record matching the claims
+   > GitHub sends. Nothing is uploaded when that happens, so the version
+   > number stays free — fix the configuration and re-run the failed job
+   > rather than burning a patch release.
+   >
+   > To configure it, add a *pending* publisher on pypi.org (Your account →
+   > Publishing) — pending, because the project has never been published:
+   > project `mcp-mealie`, owner `mgummich`, repository `mcp-mealie`,
+   > workflow `release.yml`, environment `pypi`. All five must match, and
+   > the environment is the one usually left blank.
+   >
+   > Until then, installs come from git: the README's `uvx --from
+   > git+https://github.com/mgummich/mcp-mealie@vX.Y.Z` form needs only the
+   > tag, which step 4 already pushed. Bump the tag in the README and
+   > `docs/HOWTO.md` as part of the release.
 
 5. Publish the version to the MCP registry:
 
