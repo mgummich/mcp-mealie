@@ -39,6 +39,14 @@ MERGE_KEYS = {
     "units": ("fromUnit", "toUnit"),
 }
 
+#: POSTs that change nothing, so they must not invalidate the recipe cache.
+NON_MUTATING_POSTS = frozenset({"/api/parser/ingredients"})
+
+#: Ceiling on cached recipe bodies. One sweep of a large library is ~20MB of
+#: JSON; past this the cache is dropped rather than grown for the process
+#: lifetime.
+MAX_CACHED_DETAILS = MAX_LIBRARY_RECIPES
+
 
 class MealieClient:
     """Thin async wrapper over Mealie's REST API.
@@ -134,7 +142,8 @@ class MealieClient:
                 await asyncio.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
                 continue
 
-            if method != "GET":
+            log.debug("%s %s -> %s", method, path, response.status_code)
+            if method != "GET" and path not in NON_MUTATING_POSTS:
                 # Any write can change ingredients, so the cached recipe
                 # bodies are no longer trustworthy. Clearing on every write
                 # is cheaper than reasoning about which path touched what.
@@ -324,7 +333,8 @@ class MealieClient:
         The sweep is the expensive part of any ingredient-level report: one
         request per recipe, and a library-wide run takes seconds. Foods and
         units are two such reports over the same bodies, so the second one
-        should cost nothing. Any write clears the cache.
+        should cost nothing. Any write clears the cache, as does growing it
+        past MAX_CACHED_DETAILS.
 
         Args:
             slugs: Recipe slugs, in the order the caller wants results.
@@ -333,7 +343,13 @@ class MealieClient:
             One entry per slug: the recipe body, or None if it could not be
             read.
         """
-        missing = [slug for slug in dict.fromkeys(slugs) if slug not in self._details]
+        unique = list(dict.fromkeys(slugs))
+        # ponytail: drop the whole cache rather than evict one by one; the
+        # caller is a sweep, and a half-populated cache re-fetches anyway.
+        if len(self._details) + len(unique) > MAX_CACHED_DETAILS:
+            self._details.clear()
+
+        missing = [slug for slug in unique if slug not in self._details]
         if missing:
             fetched = await map_concurrent(
                 [partial(self.request, "GET", f"/api/recipes/{slug}") for slug in missing]

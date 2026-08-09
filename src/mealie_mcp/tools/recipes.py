@@ -18,6 +18,11 @@ GetClient = Callable[[], MealieClient]
 #: What Mealie's image pipeline can read.
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
+#: Hard ceiling on one page of search results. Mealie will happily return the
+#: whole library in one reply; nothing reads 2000 recipes, and the reply is the
+#: expensive part. Paginate instead.
+MAX_SEARCH_LIMIT = 100
+
 
 def _normalize_ingredient(item: dict, original: str = "") -> dict:
     """Coerce one ingredient into something Mealie's DB layer accepts.
@@ -97,6 +102,11 @@ async def _ingredient_payload(client: MealieClient, items: list[Any]) -> list[di
         results = await client.request(
             "POST", "/api/parser/ingredients", json={"ingredients": texts}
         )
+        if not isinstance(results, list) or len(results) != len(texts):
+            raise ToolError(
+                "Mealie's ingredient parser returned an unexpected response for "
+                f"{len(texts)} ingredient lines — nothing was written"
+            )
         for text, result in zip(texts, results, strict=True):
             parsed_by_text[text] = result.get("ingredient") or {"note": text}
 
@@ -106,6 +116,32 @@ async def _ingredient_payload(client: MealieClient, items: list[Any]) -> list[di
         else _normalize_ingredient(i)
         for i in items
     ]
+
+
+def _created_slug(response: Any, what: str) -> str:
+    """Read the slug out of a create response, which is a bare string or a body.
+
+    The recipe exists on the server by the time this runs, so an unreadable
+    response has to be named rather than turned into a request for
+    /api/recipes/None a line later.
+
+    Args:
+        response: Whatever the create endpoint returned.
+        what: How to describe the operation in the error, e.g. "created".
+
+    Returns:
+        The new recipe's slug.
+
+    Raises:
+        ToolError: If no slug can be read.
+    """
+    slug = response if isinstance(response, str) else (response or {}).get("slug")
+    if not isinstance(slug, str) or not slug:
+        raise ToolError(
+            f"Mealie {what} the recipe but returned no slug, so it cannot be read "
+            "back — look for it in Mealie directly"
+        )
+    return slug
 
 
 async def _fetch_recipe(
@@ -154,8 +190,12 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         prep_time, cook_time, total_time, tags, categories, tools, source_url,
         rating. Ingredients, instructions, and notes are not in Mealie's
         search payload; get_recipe is the only way to those.
+
+        limit is capped at 100 per page; ask for the next page instead.
         """
         client = get_client()
+        page = max(page, 1)
+        limit = min(max(limit, 1), MAX_SEARCH_LIMIT)
         if fields:
             unknown = [f for f in fields if f not in shape.SUMMARY_FIELDS]
             if unknown:
@@ -272,9 +312,8 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
 
         # Mealie's POST accepts {name} only and returns a slug; everything else
         # has to land in a follow-up PATCH.
-        slug = await client.request("POST", "/api/recipes", json={"name": name})
-        if not isinstance(slug, str):
-            slug = (slug or {}).get("slug")
+        created = await client.request("POST", "/api/recipes", json={"name": name})
+        slug = _created_slug(created, "created")
 
         try:
             payload: dict[str, Any] = {}
@@ -529,7 +568,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         recipe comes back empty, which the result flags.
         """
         client = get_client()
-        slug = await client.request(
+        imported = await client.request(
             "POST",
             "/api/recipes/create/url",
             json={
@@ -538,8 +577,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
                 "includeCategories": include_categories,
             },
         )
-        if not isinstance(slug, str):
-            slug = (slug or {}).get("slug")
+        slug = _created_slug(imported, "imported")
         return _flag_failed_scrape(await _fetch_recipe(client, slug))
 
 

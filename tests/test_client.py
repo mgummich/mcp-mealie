@@ -7,6 +7,7 @@ import pytest
 import respx
 from fastmcp.exceptions import ToolError
 
+from mealie_mcp import client as client_module
 from mealie_mcp.client import MealieClient, slugify
 
 BASE = "https://mealie.test"
@@ -221,6 +222,39 @@ async def test_a_write_invalidates_cached_recipe_details(client):
     await client.recipe_details(["stew"])
 
     assert route.call_count == 2
+
+
+@respx.mock
+async def test_parsing_ingredients_does_not_invalidate_cached_recipe_details(client):
+    # The parser is a POST that changes nothing; dropping the sweep cache for
+    # it would make every create_recipe re-fetch the whole library.
+    route = respx.get(f"{BASE}/api/recipes/stew").mock(
+        return_value=httpx.Response(200, json={"slug": "stew"})
+    )
+    respx.post(f"{BASE}/api/parser/ingredients").mock(return_value=httpx.Response(200, json=[]))
+
+    await client.recipe_details(["stew"])
+    await client.request("POST", "/api/parser/ingredients", json={"ingredients": []})
+    await client.recipe_details(["stew"])
+
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_recipe_details_cache_is_bounded(client, monkeypatch):
+    monkeypatch.setattr(client_module, "MAX_CACHED_DETAILS", 2)
+    routes = {
+        slug: respx.get(f"{BASE}/api/recipes/{slug}").mock(
+            return_value=httpx.Response(200, json={"slug": slug})
+        )
+        for slug in ("a", "b", "c")
+    }
+
+    await client.recipe_details(["a", "b"])
+    await client.recipe_details(["c"])  # would be the third entry — cache drops
+    await client.recipe_details(["a"])
+
+    assert routes["a"].call_count == 2
 
 
 @pytest.mark.parametrize(
