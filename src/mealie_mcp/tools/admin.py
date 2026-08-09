@@ -20,6 +20,83 @@ GetClient = Callable[[], MealieClient]
 RESOURCES = tuple(TAXONOMY_PATHS)
 ACTIONS = ("list", "create", "update", "merge", "delete")
 PAGE_SIZE = 200
+#: Per-item keys accepted inside the batch `items` list.
+ITEM_KEYS = ("name", "item_id", "data", "merge_into")
+
+
+async def _apply(
+    client: MealieClient,
+    resource: str,
+    action: str,
+    *,
+    name: str | None = None,
+    item_id: str | None = None,
+    data: dict[str, Any] | None = None,
+    merge_into: str | None = None,
+) -> dict:
+    """Run one create/update/merge/delete against a taxonomy resource.
+
+    Args:
+        client: The live Mealie client.
+        resource: Key into TAXONOMY_PATHS.
+        action: One of create, update, merge, delete.
+        name: New name, for create and update.
+        item_id: Target item, for update, merge, and delete.
+        data: Extra fields to set, for create and update.
+        merge_into: The keeper, for merge.
+
+    Returns:
+        The shaped item, or a {"deleted": id} receipt.
+
+    Raises:
+        ToolError: On a missing argument or an unsupported merge.
+    """
+    path = TAXONOMY_PATHS[resource]
+
+    if action == "create":
+        if not name:
+            raise ToolError("create requires a name")
+        created = await client.request("POST", path, json={**(data or {}), "name": name})
+        client.forget_taxonomy(resource)
+        return shape.taxonomy_item(created)
+
+    if action == "merge":
+        if resource not in MERGE_KEYS:
+            raise ToolError(
+                f"merge is only supported for {', '.join(MERGE_KEYS)} — "
+                f"for {resource}, re-tag the recipes and delete the leftover"
+            )
+        if not item_id or not merge_into:
+            raise ToolError("merge requires item_id (the loser) and merge_into (the keeper)")
+        from_key, to_key = MERGE_KEYS[resource]
+        merged = await client.request(
+            "PUT", f"{path}/merge", json={from_key: item_id, to_key: merge_into}
+        )
+        client.forget_taxonomy(resource)
+        return {**shape.taxonomy_item(merged or {}), "merged": item_id, "into": merge_into}
+
+    if action == "update":
+        if not item_id:
+            raise ToolError("update requires an item_id (get it from action='list')")
+        if name is None and not data:
+            raise ToolError("update requires a name and/or data")
+        missing = f"{resource} item {item_id!r} not found"
+        # Mealie's PUT replaces the whole row, so patch onto the current one.
+        current = await client.request("GET", f"{path}/{item_id}", not_found=missing)
+        payload = {**(current or {}), **(data or {})}
+        if name is not None:
+            payload["name"] = name
+        updated = await client.request("PUT", f"{path}/{item_id}", json=payload, not_found=missing)
+        client.forget_taxonomy(resource)
+        return shape.taxonomy_item(updated or payload)
+
+    if not item_id:
+        raise ToolError("delete requires an item_id (get it from action='list')")
+    await client.request(
+        "DELETE", f"{path}/{item_id}", not_found=f"{resource} item {item_id!r} not found"
+    )
+    client.forget_taxonomy(resource)
+    return {"deleted": item_id}
 
 
 def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
@@ -47,6 +124,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         page: int = 1,
         data: dict[str, Any] | None = None,
         merge_into: str | None = None,
+        items: list[dict[str, Any]] | None = None,
     ) -> dict:
         """List, create, update, merge, or delete Mealie's organizing entities.
 
@@ -59,6 +137,14 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
           merge  — foods and units only: folds item_id into merge_into and
             repoints every recipe that used it
           delete — needs item_id
+
+        items batches any action except list: pass a list of per-item dicts
+        using the same keys as the single form — name, item_id, data,
+        merge_into — and every one runs in this single call. Twenty-five
+        renames is one call, not twenty-five. The reply carries results and
+        errors separately; one bad item does not stop the rest. Example:
+        action="update", items=[{"item_id": "...", "name": "Scallion"},
+        {"item_id": "...", "data": {"pluralName": "Onions"}}].
 
         data holds the fields Mealie stores beyond the name. For foods:
         description, pluralName, labelId (from resource="labels"), and
@@ -76,57 +162,58 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             raise ToolError(f"action must be one of {', '.join(allowed_actions)}")
 
         client = get_client()
-        path = TAXONOMY_PATHS[resource]
 
         if action == "list":
+            if items:
+                raise ToolError("items batches writes, not list")
             result = await client.request(
-                "GET", path, params={"search": search, "page": page, "perPage": PAGE_SIZE}
+                "GET",
+                TAXONOMY_PATHS[resource],
+                params={"search": search, "page": page, "perPage": PAGE_SIZE},
             )
             return shape.paginated(result, shape.taxonomy_item, page_number=page)
 
-        if action == "create":
-            if not name:
-                raise ToolError("create requires a name")
-            created = await client.request("POST", path, json={**(data or {}), "name": name})
-            client.forget_taxonomy(resource)
-            return shape.taxonomy_item(created)
+        if items is None:
+            return await _apply(
+                client,
+                resource,
+                action,
+                name=name,
+                item_id=item_id,
+                data=data,
+                merge_into=merge_into,
+            )
 
-        if action == "merge":
-            if resource not in MERGE_KEYS:
-                raise ToolError(
-                    f"merge is only supported for {', '.join(MERGE_KEYS)} — "
-                    f"for {resource}, re-tag the recipes and delete the leftover"
+        if not items:
+            raise ToolError("items is empty — nothing to do")
+
+        results: list[dict] = []
+        errors: list[dict] = []
+        for index, item in enumerate(items):
+            if not isinstance(item, dict):
+                errors.append({"index": index, "item": item, "error": "not an object"})
+                continue
+            unknown = [k for k in item if k not in ITEM_KEYS]
+            if unknown:
+                errors.append(
+                    {
+                        "index": index,
+                        "item": item,
+                        "error": f"unknown keys {unknown} — use {', '.join(ITEM_KEYS)}",
+                    }
                 )
-            if not item_id or not merge_into:
-                raise ToolError("merge requires item_id (the loser) and merge_into (the keeper)")
-            from_key, to_key = MERGE_KEYS[resource]
-            merged = await client.request(
-                "PUT", f"{path}/merge", json={from_key: item_id, to_key: merge_into}
-            )
-            client.forget_taxonomy(resource)
-            return {**shape.taxonomy_item(merged or {}), "merged": item_id, "into": merge_into}
+                continue
+            try:
+                results.append(await _apply(client, resource, action, **item))
+            except ToolError as exc:
+                # One bad id should not strand the other twenty-four writes.
+                errors.append({"index": index, "item": item, "error": str(exc)})
 
-        if action == "update":
-            if not item_id:
-                raise ToolError("update requires an item_id (get it from action='list')")
-            if name is None and not data:
-                raise ToolError("update requires a name and/or data")
-            missing = f"{resource} item {item_id!r} not found"
-            # Mealie's PUT replaces the whole row, so patch onto the current one.
-            current = await client.request("GET", f"{path}/{item_id}", not_found=missing)
-            payload = {**(current or {}), **(data or {})}
-            if name is not None:
-                payload["name"] = name
-            updated = await client.request(
-                "PUT", f"{path}/{item_id}", json=payload, not_found=missing
-            )
-            client.forget_taxonomy(resource)
-            return shape.taxonomy_item(updated or payload)
-
-        if not item_id:
-            raise ToolError("delete requires an item_id (get it from action='list')")
-        await client.request(
-            "DELETE", f"{path}/{item_id}", not_found=f"{resource} item {item_id!r} not found"
-        )
-        client.forget_taxonomy(resource)
-        return {"deleted": item_id}
+        return {
+            "action": action,
+            "resource": resource,
+            "results": results,
+            "count": len(results),
+            "errors": errors,
+            "failed": len(errors),
+        }

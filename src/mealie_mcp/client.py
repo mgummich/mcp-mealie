@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -15,6 +16,12 @@ log = logging.getLogger(__name__)
 TIMEOUT_SECONDS = 15.0
 GET_RETRIES = 2
 RETRY_BACKOFF_SECONDS = 0.5
+
+#: Page size and default ceiling for whole-library sweeps.
+LIBRARY_PAGE_SIZE = 100
+MAX_LIBRARY_RECIPES = 2000
+#: How many per-recipe requests a sweep runs at once.
+FANOUT = 8
 
 TAXONOMY_PATHS = {
     "foods": "/api/foods",
@@ -208,6 +215,27 @@ class MealieClient:
             resolved.append(known[key])
         return resolved, created
 
+    async def taxonomy_names(self, resource: str, names: list[str]) -> list[str]:
+        """Map names to their canonical casing as stored in Mealie.
+
+        Cookbook filter strings match on name, and Mealie's parser is
+        case-sensitive there, so "vegan" has to become "Vegan" before it goes
+        into a filter. Unknown names pass through untouched — filtering on one
+        is not an error, it just matches nothing.
+
+        Args:
+            resource: Key into TAXONOMY_PATHS ("tags", "categories", ...).
+            names: Plain names, matched case-insensitively.
+
+        Returns:
+            One name per input name, in order.
+        """
+        if not names:
+            return []
+        await self._load_taxonomy(resource)
+        known = self._taxonomy[resource]
+        return [item["name"] if (item := known.get(n.casefold())) else n for n in names]
+
     async def taxonomy_slugs(self, resource: str, names: list[str]) -> list[str]:
         """Map names to slugs for filtering.
 
@@ -238,6 +266,41 @@ class MealieClient:
                 item["name"].casefold(): item for item in page.get("items", [])
             }
 
+    # ---------------------------------------------------------- library sweep
+
+    async def all_recipes(
+        self, *, max_recipes: int = MAX_LIBRARY_RECIPES
+    ) -> tuple[list[dict], int]:
+        """Page through the whole recipe list.
+
+        These are summaries: name, slug, tags, categories, tools, rating,
+        orgURL, image. Ingredients and instructions are not in this payload —
+        anything that needs them has to fetch each recipe.
+
+        Args:
+            max_recipes: Stop after this many, so a huge library cannot hang
+                a single tool call.
+
+        Returns:
+            A tuple of (summaries, the total Mealie reports). The two differ
+            when the cap cut the sweep short.
+        """
+        items: list[dict] = []
+        total = 0
+        page = 1
+        while len(items) < max_recipes:
+            result = await self.request(
+                "GET", "/api/recipes", params={"page": page, "perPage": LIBRARY_PAGE_SIZE}
+            )
+            batch = result.get("items") or []
+            items.extend(batch)
+            reported = result.get("total")
+            total = reported if isinstance(reported, int) else len(items)
+            if len(batch) < LIBRARY_PAGE_SIZE or len(items) >= total:
+                break
+            page += 1
+        return items[:max_recipes], max(total, len(items))
+
     def forget_taxonomy(self, resource: str) -> None:
         """Drop the cached snapshot for a resource after an external change.
 
@@ -245,6 +308,28 @@ class MealieClient:
             resource: Key into TAXONOMY_PATHS ("tags", "categories", ...).
         """
         self._taxonomy.pop(resource, None)
+
+
+async def map_concurrent(
+    factories: list[Callable[[], Awaitable[Any]]], limit: int = FANOUT
+) -> list:
+    """Run coroutine factories with a concurrency cap, keeping input order.
+
+    Args:
+        factories: Zero-argument callables returning a coroutine. Factories,
+            not coroutines, so nothing starts before its slot is free.
+        limit: How many run at once.
+
+    Returns:
+        One entry per factory: its result, or the exception it raised.
+    """
+    semaphore = asyncio.Semaphore(limit)
+
+    async def run(factory: Callable[[], Awaitable[Any]]) -> Any:
+        async with semaphore:
+            return await factory()
+
+    return await asyncio.gather(*(run(f) for f in factories), return_exceptions=True)
 
 
 def slugify(name: str) -> str:

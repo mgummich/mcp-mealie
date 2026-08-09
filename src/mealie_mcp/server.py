@@ -13,7 +13,7 @@ from fastmcp.exceptions import ToolError
 
 from .client import MealieClient
 from .config import Config, ConfigError
-from .tools import admin, cookbooks, mealplan, recipes
+from .tools import admin, cookbooks, library, mealplan, recipes
 
 log = logging.getLogger("mealie_mcp")
 
@@ -107,7 +107,7 @@ def build_server(config: Config) -> FastMCP:
             _client = None
 
     mcp = FastMCP(name="mealie", lifespan=lifespan)
-    for module in (recipes, mealplan, cookbooks, admin):
+    for module in (recipes, mealplan, cookbooks, library, admin):
         module.register(mcp, get_client, config.read_only)
     return mcp
 

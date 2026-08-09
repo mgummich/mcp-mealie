@@ -24,6 +24,9 @@ READ_TOOLS = {
     "get_cookbook_recipes",
     "parse_ingredients",
     "manage_taxonomy",
+    "library_stats",
+    "find_duplicate_recipes",
+    "check_recipe_links",
 }
 WRITE_TOOLS = {
     "create_recipe",
@@ -35,6 +38,7 @@ WRITE_TOOLS = {
     "delete_meal_plan_entry",
     "random_meal_plan",
     "create_cookbook",
+    "update_cookbook",
     "delete_cookbook",
 }
 
@@ -329,3 +333,237 @@ async def test_get_recipe_rejects_an_unknown_field():
     async with Client(build_server(config())) as client:
         with pytest.raises(ToolError, match="unknown fields"):
             await client.call_tool("get_recipe", {"slug": "roast", "fields": ["ingredents"]})
+
+
+@respx.mock
+async def test_library_stats_rolls_up_tag_usage_in_one_call():
+    # The whole point: one call answers "which tags are unused".
+    respx.get(f"{BASE}/api/recipes").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {"slug": "stew", "name": "Stew", "tags": [{"id": "t1", "name": "Dinner"}]},
+                    {"slug": "soup", "name": "Soup", "tags": [{"id": "t1", "name": "Dinner"}]},
+                ],
+                "total": 2,
+            },
+        )
+    )
+    respx.get(f"{BASE}/api/organizers/tags").mock(
+        return_value=httpx.Response(
+            200,
+            json={"items": [{"id": "t1", "name": "Dinner"}, {"id": "t2", "name": "Brunch"}]},
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("library_stats", {"resource": "tags"})
+
+    assert result.data["items"] == [
+        {"id": "t1", "name": "Dinner", "recipe_count": 2},
+        {"id": "t2", "name": "Brunch", "recipe_count": 0},
+    ]
+    assert result.data["unused"] == 1
+
+
+@respx.mock
+async def test_library_stats_counts_a_repeated_food_once_per_recipe():
+    respx.get(f"{BASE}/api/recipes").mock(
+        return_value=httpx.Response(
+            200, json={"items": [{"slug": "cake", "name": "Cake"}], "total": 1}
+        )
+    )
+    respx.get(f"{BASE}/api/recipes/cake").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "recipeIngredient": [
+                    {"food": {"id": "f1", "name": "Flour"}},
+                    {"food": {"id": "f1", "name": "Flour"}},
+                ]
+            },
+        )
+    )
+    respx.get(f"{BASE}/api/foods").mock(
+        return_value=httpx.Response(200, json={"items": [{"id": "f1", "name": "Flour"}]})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("library_stats", {"resource": "foods"})
+
+    assert result.data["items"] == [{"id": "f1", "name": "Flour", "recipe_count": 1}]
+
+
+@respx.mock
+async def test_find_duplicate_recipes_ignores_punctuation_and_case():
+    respx.get(f"{BASE}/api/recipes").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {"slug": "chili", "name": "Grandma's Chili!"},
+                    {"slug": "chili-2", "name": "grandma s chili"},
+                    {"slug": "toast", "name": "Toast"},
+                ],
+                "total": 3,
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("find_duplicate_recipes", {})
+
+    assert result.data["count"] == 1
+    assert {r["slug"] for r in result.data["groups"][0]["recipes"]} == {"chili", "chili-2"}
+
+
+@respx.mock
+async def test_check_recipe_links_reports_dead_sources_and_blank_images():
+    respx.get(f"{BASE}/api/recipes").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {"slug": "gone", "name": "Gone", "orgURL": "https://dead.test/r", "image": "1"},
+                    {"slug": "blank", "name": "Blank"},
+                ],
+                "total": 2,
+            },
+        )
+    )
+    respx.head("https://dead.test/r").mock(return_value=httpx.Response(404))
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("check_recipe_links", {})
+
+    assert [b["slug"] for b in result.data["broken_sources"]] == ["gone"]
+    assert [m["slug"] for m in result.data["missing_images"]] == ["blank"]
+
+
+@respx.mock
+async def test_search_fields_projects_without_a_get_recipe_per_hit():
+    respx.get(f"{BASE}/api/recipes").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "slug": "stew",
+                        "name": "Stew",
+                        "description": "warm",
+                        "tags": [{"name": "Dinner"}],
+                    }
+                ],
+                "total": 1,
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("search_recipes", {"fields": ["slug", "tags"]})
+
+    assert result.data["items"] == [{"slug": "stew", "tags": ["Dinner"]}]
+
+
+async def test_search_rejects_fields_that_only_get_recipe_can_serve():
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="ingredients"):
+            await client.call_tool("search_recipes", {"fields": ["ingredients"]})
+
+
+@respx.mock
+async def test_batch_taxonomy_update_reports_per_item_failures():
+    # One bad id must not strand the other writes.
+    respx.get(f"{BASE}/api/foods/f1").mock(
+        return_value=httpx.Response(200, json={"id": "f1", "name": "Scallions"})
+    )
+    respx.put(f"{BASE}/api/foods/f1").mock(
+        return_value=httpx.Response(200, json={"id": "f1", "name": "Scallion"})
+    )
+    respx.get(f"{BASE}/api/foods/nope").mock(return_value=httpx.Response(404))
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "manage_taxonomy",
+            {
+                "resource": "foods",
+                "action": "update",
+                "items": [
+                    {"item_id": "f1", "name": "Scallion"},
+                    {"item_id": "nope", "name": "Ghost"},
+                ],
+            },
+        )
+
+    assert result.data["count"] == 1
+    assert result.data["results"][0]["name"] == "Scallion"
+    assert result.data["failed"] == 1
+    assert result.data["errors"][0]["index"] == 1
+
+
+@respx.mock
+async def test_create_cookbook_builds_the_filter_with_stored_casing():
+    respx.get(f"{BASE}/api/organizers/tags").mock(
+        return_value=httpx.Response(
+            200, json={"items": [{"id": "t1", "name": "Vegan", "slug": "vegan"}]}
+        )
+    )
+    created = respx.post(f"{BASE}/api/households/cookbooks").mock(
+        return_value=httpx.Response(201, json={"id": "c1", "name": "Greens"})
+    )
+
+    async with Client(build_server(config())) as client:
+        await client.call_tool(
+            "create_cookbook", {"name": "Greens", "tags": ["vegan"], "require_all": True}
+        )
+
+    import json as _json
+
+    body = _json.loads(created.calls.last.request.content)
+    assert body["queryFilterString"] == 'tags.name CONTAINS ALL ["Vegan"]'
+
+
+async def test_cookbook_refuses_a_hand_written_filter_plus_name_lists():
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="not both"):
+            await client.call_tool(
+                "create_cookbook",
+                {"name": "X", "tags": ["Vegan"], "query_filter": "rating > 3"},
+            )
+
+
+@respx.mock
+async def test_update_cookbook_keeps_the_id_and_patches_onto_the_current_row():
+    respx.get(f"{BASE}/api/households/cookbooks/c1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "c1",
+                "name": "Old",
+                "description": "keep me",
+                "queryFilterString": "rating > 1",
+                "public": False,
+            },
+        )
+    )
+    put = respx.put(f"{BASE}/api/households/cookbooks/c1").mock(
+        return_value=httpx.Response(200, json={"id": "c1", "name": "New"})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "update_cookbook", {"cookbook_id": "c1", "name": "New", "query_filter": "rating > 4"}
+        )
+
+    import json as _json
+
+    body = _json.loads(put.calls.last.request.content)
+    assert body == {
+        "id": "c1",
+        "name": "New",
+        "description": "keep me",
+        "queryFilterString": "rating > 4",
+        "public": False,
+    }
+    assert result.data["cookbook_id"] == "c1"

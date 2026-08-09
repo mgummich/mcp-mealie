@@ -160,6 +160,14 @@ DETAIL_FIELDS = (
 )
 
 
+#: The subset of DETAIL_FIELDS a search result can actually carry. Mealie's
+#: list endpoint returns summaries; ingredients, instructions, and notes are
+#: only on the single-recipe payload.
+SUMMARY_FIELDS = tuple(
+    f for f in DETAIL_FIELDS if f not in ("ingredients", "instructions", "notes")
+)
+
+
 def pick(data: dict, fields: list[str] | None) -> dict:
     """Keep only the requested keys.
 

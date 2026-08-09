@@ -7,9 +7,9 @@
 [![Python](https://img.shields.io/pypi/pyversions/mcp-mealie)](https://pypi.org/project/mcp-mealie/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-Nineteen curated tools over recipes, meal plans, and cookbooks, with responses
-trimmed hard enough that a recipe costs a few hundred tokens instead of a few
-thousand.
+Twenty-three curated tools over recipes, meal plans, cookbooks, and library
+cleanup, with responses trimmed hard enough that a recipe costs a few hundred
+tokens instead of a few thousand.
 
 Works with any MCP client that speaks stdio: Claude Code, Claude Desktop,
 Cursor, Windsurf, Zed.
@@ -69,10 +69,11 @@ startup error rather than a silent false.
 | --- | --- |
 | 🥘 **Recipes** | `search_recipes` · `get_recipe` · `suggest_recipes` · `create_recipe` · `update_recipe` · `set_recipe_image` · `delete_recipe` · `import_recipe_from_url` |
 | 📅 **Meal plans** | `get_meal_plan` · `get_todays_meals` · `add_meal_plan_entry` · `delete_meal_plan_entry` · `random_meal_plan` |
-| 📚 **Cookbooks** | `list_cookbooks` · `get_cookbook_recipes` · `create_cookbook` · `delete_cookbook` |
+| 📚 **Cookbooks** | `list_cookbooks` · `get_cookbook_recipes` · `create_cookbook` · `update_cookbook` · `delete_cookbook` |
+| 📊 **Library reports** | `library_stats` · `find_duplicate_recipes` · `check_recipe_links` |
 | 🔧 **Other** | `parse_ingredients` · `manage_taxonomy` |
 
-With `MEALIE_READ_ONLY=true`, nine read tools remain.
+With `MEALIE_READ_ONLY=true`, twelve read tools remain.
 
 Once connected, ask in plain language — the agent picks the tools:
 
@@ -102,6 +103,19 @@ Once connected, ask in plain language — the agent picks the tools:
   repointed.
 - **A random week is one call.** Mealie's random endpoint fills one day per
   request. `random_meal_plan` loops for you, capped at 14 days.
+- **Usage rollups in one call.** Mealie has no "how many recipes use this
+  food" endpoint. `library_stats("foods")` sweeps the library server-side and
+  returns every food with its recipe count, unused ones included — the answer
+  to "is this safe to delete" without a search per name.
+- **Batch taxonomy writes.** `manage_taxonomy(action="update", items=[...])`
+  runs twenty-five renames in one call, and reports per-item failures instead
+  of stopping at the first bad id.
+- **Cookbook filters without the syntax.** `create_cookbook(tags=["Vegan"])`
+  builds the `queryFilterString` for you, matching your names to Mealie's
+  stored casing. `update_cookbook` re-filters in place, so the id survives.
+- **Sweeps without a call per recipe.** `search_recipes(fields=["slug",
+  "tags"])` projects results the way `get_recipe` does, so surveying the
+  library is one paged search rather than N follow-up reads.
 
 ### 🛡️ Safety
 
@@ -112,10 +126,11 @@ Once connected, ask in plain language — the agent picks the tools:
 
 ## 🎓 Bundled skill
 
-`skills/mealie/SKILL.md` covers the workflows the tool list alone doesn't
-teach: planning a week without repeats, filing an imported recipe, and writing
-cookbook filters. Copy it into your agent's skills directory, or read it as
-documentation.
+`skills/mealie-mcp/SKILL.md` covers the workflows the tool list alone doesn't
+teach: planning a week without repeats, filing an imported recipe, building
+cookbook filters, and cleaning up a library rollup-first. Copy it into your
+agent's skills directory, or read it as documentation — it installs as
+`mealie-mcp`, so it won't collide with another Mealie skill.
 
 ## 🛠️ Development
 
