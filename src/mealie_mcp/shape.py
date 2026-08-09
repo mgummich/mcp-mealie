@@ -139,6 +139,41 @@ def recipe_detail(recipe: dict) -> dict:
     )
 
 
+#: Keys recipe_detail can return, in the order it builds them.
+DETAIL_FIELDS = (
+    "name",
+    "slug",
+    "description",
+    "yield",
+    "prep_time",
+    "cook_time",
+    "total_time",
+    "ingredients",
+    "instructions",
+    "tags",
+    "categories",
+    "source_url",
+    "rating",
+    "notes",
+)
+
+
+def pick(data: dict, fields: list[str] | None) -> dict:
+    """Keep only the requested keys.
+
+    Args:
+        data: An already-shaped dict.
+        fields: Keys to keep; None or empty means keep everything.
+
+    Returns:
+        The subset of data whose keys were asked for.
+    """
+    if not fields:
+        return data
+    wanted = set(fields)
+    return {k: v for k, v in data.items() if k in wanted}
+
+
 def meal_plan_entry(entry: dict) -> dict:
     """Shape one meal plan entry.
 
