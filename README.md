@@ -55,6 +55,21 @@ claude mcp add mealie \
 
 Add the JSON block above under `mcpServers` in the client's config file.
 
+### Updating
+
+`uvx` caches the version it first resolved, so a plain restart keeps running the
+old one. To move to the newest release:
+
+```bash
+uvx mcp-mealie@latest        # one-off run on the newest version
+uv cache clean mcp-mealie    # drop the cached build, then restart the client
+```
+
+To pin instead, put the version in the command — `uvx mcp-mealie@0.1.0`, or
+`"args": ["mcp-mealie@0.1.0"]` in the JSON block. Restart the MCP client after
+any change; it only reads the config at startup. Released versions are listed in
+the [changelog](https://mgummich.github.io/mcp-mealie/changelog).
+
 ## ⚙️ Configuration
 
 | Variable | Required | Default | Purpose |
