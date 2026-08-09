@@ -68,10 +68,9 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         tags are unused", "what is my most-used food", and "is this safe to
         delete". Items come back sorted by recipe_count, highest first.
 
-        Only the top used items are listed — raise top for more, and read
-        "used" for how many there are in total. Unused ones are all listed,
-        since those are the ones worth acting on; pass include_unused=false to
-        leave them out.
+        At most top used and top unused items are listed — raise top for more,
+        and read "used" and "unused" for how many there are in total. Pass
+        include_unused=false to leave the unused ones out entirely.
 
         resource: tags, categories, tools, foods, or units.
 
@@ -96,12 +95,9 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
                 counts.update({i["id"] for i in recipe.get(key) or [] if i.get("id")})
         else:
             singular = resource[:-1]  # foods -> food, units -> unit
-            slugs = [recipe.get("slug") for recipe in recipes]
-            details = await map_concurrent(
-                [partial(client.request, "GET", f"/api/recipes/{slug}") for slug in slugs]
-            )
-            for detail in details:
-                if isinstance(detail, BaseException) or not isinstance(detail, dict):
+            slugs = [recipe["slug"] for recipe in recipes if recipe.get("slug")]
+            for detail in await client.recipe_details(slugs):
+                if detail is None:
                     failed += 1
                     continue
                 counts.update(
@@ -132,8 +128,10 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
 
         # The long tail of the used list is what nobody reads: "my most-used
         # food" is answered by the first few rows, and each row carries a UUID.
-        # The unused list is the one people act on, so it comes back whole.
-        shown = used[:top] + unused
+        # The unused list is the one people act on, so it gets its own budget
+        # rather than sharing — but it is bounded too: 193 unused tags is
+        # 15k characters, and nothing is deleted 193 at a time.
+        shown = used[:top] + unused[:top]
 
         result = {
             "resource": resource,
@@ -146,6 +144,8 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         notes = []
         if len(used) > top:
             notes.append(f"showing the {top} most-used of {len(used)} — raise top for the rest")
+        if len(unused) > top:
+            notes.append(f"showing {top} of {len(unused)} unused — raise top for the rest")
         if len(recipes) < total:
             notes.append(
                 f"scanned {len(recipes)} of {total} recipes — raise max_recipes for the rest"

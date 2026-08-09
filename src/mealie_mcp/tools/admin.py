@@ -19,7 +19,10 @@ GetClient = Callable[[], MealieClient]
 
 RESOURCES = tuple(TAXONOMY_PATHS)
 ACTIONS = ("list", "create", "update", "merge", "delete")
-PAGE_SIZE = 200
+#: Rows per list page. A food carries description, plural name, label, and
+#: aliases, so 200 of them is a 12k-token reply for a question that is almost
+#: always answered by the first few rows or by search.
+PAGE_SIZE = 50
 #: Per-item keys accepted inside the batch `items` list.
 ITEM_KEYS = ("name", "item_id", "data", "merge_into")
 
@@ -130,7 +133,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
 
         resource: foods, units, labels, tags, categories, or tools
         action:
-          list (default) — 200 per page; the reply carries total and, when
+          list (default) — 50 per page; the reply carries total and, when
             there is more, the page to ask for next
           create — needs name; data may carry extra fields
           update — needs item_id; renames with name, and/or sets data

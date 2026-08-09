@@ -194,6 +194,35 @@ async def test_unknown_filter_names_slugify_instead_of_raising(client):
     assert await client.taxonomy_slugs("tags", ["Slow Cooker"]) == ["slow-cooker"]
 
 
+@respx.mock
+async def test_recipe_details_fetches_each_slug_once(client):
+    route = respx.get(f"{BASE}/api/recipes/stew").mock(
+        return_value=httpx.Response(200, json={"slug": "stew"})
+    )
+    respx.get(f"{BASE}/api/recipes/soup").mock(return_value=httpx.Response(404))
+
+    first = await client.recipe_details(["stew", "soup", "stew"])
+    second = await client.recipe_details(["stew"])
+
+    assert first == [{"slug": "stew"}, None, {"slug": "stew"}]
+    assert second == [{"slug": "stew"}]
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_a_write_invalidates_cached_recipe_details(client):
+    route = respx.get(f"{BASE}/api/recipes/stew").mock(
+        return_value=httpx.Response(200, json={"slug": "stew"})
+    )
+    respx.patch(f"{BASE}/api/recipes/stew").mock(return_value=httpx.Response(200, json={}))
+
+    await client.recipe_details(["stew"])
+    await client.request("PATCH", "/api/recipes/stew", json={"name": "Stew"})
+    await client.recipe_details(["stew"])
+
+    assert route.call_count == 2
+
+
 @pytest.mark.parametrize(
     ("name", "expected"),
     [("Slow Cooker", "slow-cooker"), ("30-Minute!", "30-minute"), ("Café", "caf")],

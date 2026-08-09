@@ -62,10 +62,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   schemas — which said no more than "an object", and are what oblige the
   server to send the structured copy — go with it. A 300-tag
   `library_stats` went from roughly 12k tokens on the wire to 5k.
-- `library_stats` takes `top` (default 50): it lists that many used items and
-  reports how many there are in total. Every row carries a UUID, and the tail
-  of the used list is what nobody reads. Unused items are still listed in
-  full, since those are the ones worth acting on.
+- `library_stats` takes `top` (default 50): used and unused items each get
+  that many rows, and the reply reports how many there are in total. Every row
+  carries a UUID, and neither the tail of the used list nor a 193-item unused
+  list is what anybody reads — on a real instance the tags rollup went from
+  20k to 8k characters.
+- `manage_taxonomy` `list` returns 50 rows a page rather than 200. A food
+  carries description, plural name, label, and aliases, so a full page was a
+  12k-token reply; it is now 3k, and the pagination note already says how to
+  ask for the rest.
+- The foods and units rollups fetch each recipe body once per process instead
+  of once per call. Mealie has no ingredient-usage endpoint, so those two
+  reports sweep the whole library; asking for foods and then units paid for
+  the same 262 requests twice. Any write drops the cache. Measured on a
+  262-recipe instance: 12.3s cold, 2.5s warm.
 
 ### Fixed
 

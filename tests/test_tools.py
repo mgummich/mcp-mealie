@@ -493,9 +493,9 @@ async def test_library_stats_rolls_up_tag_usage_in_one_call():
 
 
 @respx.mock
-async def test_library_stats_caps_the_used_tail_but_keeps_every_unused_row():
-    # Each row costs a UUID, and the long tail of used items is what nobody
-    # reads. The unused ones are the actionable list, so they all come back.
+async def test_library_stats_caps_both_lists_at_top():
+    # Each row costs a UUID. Used and unused each get their own budget of
+    # `top` rows, so neither list can run away with the reply.
     respx.get(f"{BASE}/api/recipes").mock(
         return_value=httpx.Response(
             200,
@@ -522,9 +522,11 @@ async def test_library_stats_caps_the_used_tail_but_keeps_every_unused_row():
         result = await client.call_tool("library_stats", {"resource": "tags", "top": 3})
 
     counts = [row["recipe_count"] for row in data(result)["items"]]
-    assert counts == [1, 1, 1, 0, 0, 0, 0, 0]
+    assert counts == [1, 1, 1, 0, 0, 0]
     assert data(result)["used"] == 10
+    assert data(result)["unused"] == 5
     assert "3 most-used of 10" in data(result)["note"]
+    assert "3 of 5 unused" in data(result)["note"]
 
 
 @respx.mock
