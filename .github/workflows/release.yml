@@ -24,8 +24,8 @@ jobs:
             exit 1
           fi
 
-      # pytest also pins server.json and the install tag in the docs to
-      # __version__, so a half-bumped release fails here rather than shipping.
+      # pytest also pins the install tag in the docs to __version__, so a
+      # half-bumped release fails here rather than shipping.
       - run: uv run --extra dev ruff check .
       - run: uv run --extra dev pytest
 

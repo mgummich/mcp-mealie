@@ -19,7 +19,6 @@ exclude:
   - .github/
   - pyproject.toml
   - uv.lock
-  - server.json
   - CONTRIBUTING.md
 
 defaults:
