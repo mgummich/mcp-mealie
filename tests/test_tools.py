@@ -681,6 +681,60 @@ async def test_batch_taxonomy_update_reports_per_item_failures():
     assert data(result)["errors"][0]["index"] == 1
 
 
+async def test_batch_taxonomy_survives_a_malformed_item():
+    # A non-object `data` raises TypeError deep in the payload builder, not
+    # ToolError; it must still be reported per item rather than killing the call.
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "manage_taxonomy",
+            {
+                "resource": "foods",
+                "action": "update",
+                "items": [{"item_id": "f1", "data": "not an object"}],
+            },
+        )
+
+    assert data(result)["failed"] == 1
+    assert "object" in data(result)["errors"][0]["error"]
+
+
+@respx.mock
+async def test_search_caps_the_page_size():
+    route = respx.get(f"{BASE}/api/recipes").mock(
+        return_value=httpx.Response(200, json={"items": [], "total": 0})
+    )
+
+    async with Client(build_server(config())) as client:
+        await client.call_tool("search_recipes", {"limit": 5000})
+
+    assert route.calls.last.request.url.params["perPage"] == "100"
+
+
+@respx.mock
+async def test_create_recipe_names_a_response_it_cannot_read():
+    # An unreadable create response used to become PATCH /api/recipes/None.
+    respx.post(f"{BASE}/api/recipes").mock(return_value=httpx.Response(201, json={}))
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="no slug"):
+            await client.call_tool("create_recipe", {"name": "Stew"})
+
+
+@respx.mock
+async def test_create_recipe_rejects_a_short_parser_response():
+    respx.post(f"{BASE}/api/recipes").mock(return_value=httpx.Response(201, json="stew"))
+    respx.post(f"{BASE}/api/parser/ingredients").mock(
+        return_value=httpx.Response(200, json=[{"ingredient": {"note": "flour"}}])
+    )
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="unexpected response"):
+            await client.call_tool(
+                "create_recipe",
+                {"name": "Stew", "ingredients": ["2 cups flour", "1 tsp salt"]},
+            )
+
+
 @respx.mock
 async def test_create_cookbook_builds_the_filter_with_stored_casing():
     respx.get(f"{BASE}/api/organizers/tags").mock(

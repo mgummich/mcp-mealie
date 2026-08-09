@@ -212,10 +212,14 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
                     }
                 )
                 continue
+            if item.get("data") is not None and not isinstance(item["data"], dict):
+                errors.append({"index": index, "item": item, "error": "data must be an object"})
+                continue
             try:
                 results.append(await _apply(client, resource, action, **item))
-            except ToolError as exc:
-                # One bad id should not strand the other twenty-four writes.
+            except (ToolError, TypeError, ValueError) as exc:
+                # One bad item should not strand the other twenty-four writes,
+                # and a malformed value raises TypeError, not ToolError.
                 errors.append({"index": index, "item": item, "error": str(exc)})
 
         return {

@@ -76,6 +76,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reports sweep the whole library; asking for foods and then units paid for
   the same 262 requests twice. Any write drops the cache. Measured on a
   262-recipe instance: 12.3s cold, 2.5s warm.
+- `search_recipes` caps `limit` at 100 rows a page. Mealie will return the
+  whole library in one reply if asked, and the reply is the expensive part;
+  the pagination note already says how to ask for the rest.
+- Requests are logged at DEBUG as method, path, and status — set
+  `MEALIE_LOG_LEVEL=DEBUG` to see them. The token is never logged.
 
 ### Fixed
 
@@ -91,6 +96,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the browser now come back with a note saying the scrape found nothing.
 - A 500 from Mealie was always reported as "the server is unhealthy",
   discarding the response body. Whatever Mealie sent back is now included.
+- A malformed item in a `manage_taxonomy` batch failed the whole call. Only
+  `ToolError` was caught, so a `data` value that was not an object raised
+  `TypeError` past the per-item handler and stranded the other writes. Such an
+  item is now reported in `errors` like any other bad one.
+- `create_recipe` and `import_recipe_from_url` sent a follow-up request to
+  `/api/recipes/None` when Mealie's create response carried no slug, surfacing
+  as a confusing 404. They now say the recipe exists but cannot be read back.
+- `create_recipe` and `update_recipe` raised an internal error when Mealie's
+  ingredient parser returned fewer results than lines sent. That mismatch is
+  now a plain tool error, and nothing is written.
+- The recipe-body cache is bounded. A whole-library sweep pinned every fetched
+  recipe for the life of the process; past `MAX_CACHED_DETAILS` entries the
+  cache is dropped instead of grown.
+- Parsing ingredients no longer drops that cache. `POST /api/parser/ingredients`
+  writes nothing, but counted as a write, so every `create_recipe` made the
+  next foods or units rollup sweep the library again.
 
 ## [0.1.0] - 2026-08-09
 
