@@ -41,7 +41,7 @@ Create the token in Mealie under **Settings → API Tokens**.
 
 > [!NOTE]
 > Not on PyPI yet, so installs come from git — `uvx mcp-mealie` on its own
-> will not resolve. Keep the `@v0.2.0` pin: without a tag you get whatever
+> will not resolve. Keep the `@v0.2.1` pin: without a tag you get whatever
 > `main` holds the day `uv` resolves it.
 
 New to this? The [howto](https://mgummich.github.io/mcp-mealie/howto)
@@ -110,7 +110,8 @@ take precedence over the file.
 
 > [!NOTE]
 > Requires Mealie **2.0 or newer**. The server checks at startup and refuses to
-> run against 1.x, which has no `/api/households` endpoints.
+> run against 1.x, which has no `/api/households` endpoints. CI tests against
+> 2.8.0; 3.x is in use and works, but is not covered by an automated run.
 
 ## 🧰 Tools
 
@@ -172,6 +173,9 @@ Once connected, ask in plain language — the agent picks the tools:
 - **Sweeps without a call per recipe.** `search_recipes(fields=["slug",
   "tags"])` projects results the way `get_recipe` does, so surveying the
   library is one paged search rather than N follow-up reads.
+- **A recipe Mealie chokes on still deletes.** Some rows make Mealie's own
+  delete answer 500. `delete_recipe` falls back to the bulk endpoint, which
+  gets through, and says so in the result. A typo'd slug still fails.
 
 ### 🛡️ Safety
 
@@ -216,6 +220,13 @@ Unit tests run entirely offline: `shape.py` against captured fixtures,
 The integration suite spins up a real Mealie in Docker, runs
 `tests/integration/` against it, and tears everything down.
 `scripts/smoke.py` hits a live instance of your choosing on demand.
+
+[`docs/superpowers/specs/2026-08-10-mealie-mcp-current-state.md`][spec]
+describes the server as built — every tool with its endpoint, the caches, the
+write semantics, and which 86% of Mealie's API this deliberately does not
+expose.
+
+[spec]: docs/superpowers/specs/2026-08-10-mealie-mcp-current-state.md
 
 ## 🔗 Related
 
