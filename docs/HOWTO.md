@@ -3,7 +3,8 @@
 The README says what the tools are. This is the order to do things in, and the
 handful of behaviors that surprise people on the first run.
 
-Twenty minutes end to end. Requires Mealie 2.0 or newer.
+Twenty minutes end to end. Requires Mealie 2.0 or newer; 2.x and 3.x both
+work.
 
 ## 1. Token and backup
 
@@ -152,11 +153,18 @@ days per call.
 - **Ingredients, instructions and notes replace on update.** Read the recipe
   first and pass the whole list back, not just the new items. Tags,
   categories and tools are the exception — those merge.
-- **`manage_taxonomy("…", "list")` is paged at 200** and reports the total. A
-  library with 400 foods needs two calls; conclude nothing from page one.
+- **`manage_taxonomy("…", "list")` is paged at 50** and reports the total. A
+  library with 400 foods needs eight calls; conclude nothing from page one.
   For anything table-wide, `library_stats` is cheaper and carries the counts.
 - **`update` is a patch.** Fields you do not mention keep their value.
-- **`delete_recipe` needs the slug twice** and is permanent.
+- **`delete_recipe` needs the slug twice** and is permanent. If Mealie's own
+  delete answers 500 — some rows its ORM cannot cascade do — the tool retries
+  through the bulk endpoint and tells you it did. A slug that does not exist
+  still fails, so a typo is never answered by a second attempt.
+- **An ingredient line the parser cannot place keeps its full text.** "1
+  handful of gribenes" lands as a note rather than a quantity plus a food that
+  does not exist, because Mealie's ingredient rows require a real food id. It
+  reads correctly; it just will not count toward `library_stats("foods")`.
 - **Write requests are never retried.** Mealie has no idempotency key, and a
   retried create would duplicate the recipe. A failed write is reported, not
   re-attempted.
