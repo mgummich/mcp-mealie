@@ -11,7 +11,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from .. import shape
-from ..client import MealieClient
+from ..client import MealieClient, MealieError, writable
 
 GetClient = Callable[[], MealieClient]
 
@@ -38,7 +38,7 @@ def _normalize_ingredient(item: dict, original: str = "") -> dict:
     unresolved: list[str] = []
     for value, key in ((unit, "unit"), (food, "food")):
         if isinstance(value, dict) and value.get("id"):
-            payload[key] = value
+            payload[key] = writable(value)
         elif isinstance(value, dict) and value.get("name"):
             unresolved.append(value["name"])
         elif isinstance(value, str):
@@ -46,8 +46,10 @@ def _normalize_ingredient(item: dict, original: str = "") -> dict:
 
     if unresolved and "food" not in payload and "unit" not in payload and original:
         # Nothing resolved at all: the source line reads better than a
-        # reassembled fragment like "pinch saffron".
+        # reassembled fragment like "pinch saffron". It carries the amount too,
+        # so keeping the parsed quantity would render as "500 500 g flour".
         note = " ".join(p for p in [original, item.get("note") or ""] if p).strip()
+        payload["quantity"] = 0
     else:
         note = " ".join(p for p in [*unresolved, item.get("note") or ""] if p).strip()
     payload["note"] = note
@@ -545,15 +547,35 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
 
     @mcp.tool
     async def delete_recipe(slug: str, confirm_slug: str) -> dict:
-        """Permanently delete a recipe. Pass the same slug twice to confirm."""
+        """Permanently delete a recipe. Pass the same slug twice to confirm.
+
+        A recipe whose rows Mealie's ORM cannot cascade 500s on the normal
+        delete; that case falls back to the bulk endpoint, which deletes by id
+        and gets through. The result says so when it happened.
+        """
         if slug != confirm_slug:
             raise ToolError(
                 f"confirm_slug {confirm_slug!r} does not match slug {slug!r} — nothing deleted"
             )
         client = get_client()
-        await client.request(
-            "DELETE", f"/api/recipes/{slug}", not_found=f"recipe {slug!r} not found"
-        )
+        # Resolve before deleting: the fallback needs the UUID, and after a
+        # half-failed delete the slug may no longer read back.
+        recipe_id = await client.recipe_id(slug)
+        try:
+            await client.request(
+                "DELETE", f"/api/recipes/{slug}", not_found=f"recipe {slug!r} not found"
+            )
+        except MealieError as exc:
+            if exc.status is None or exc.status < 500:
+                raise
+            await client.request(
+                "POST", "/api/recipes/bulk-actions/delete", json={"recipes": [recipe_id]}
+            )
+            client.forget_recipe(slug)
+            return {
+                "deleted": slug,
+                "note": f"the normal delete failed ({exc}); deleted via the bulk endpoint",
+            }
         client.forget_recipe(slug)
         return {"deleted": slug}
 
@@ -604,10 +626,14 @@ def _flag_failed_scrape(result: dict) -> dict:
 
 
 def _merge(existing: list[dict] | None, incoming: list[dict], replace: bool) -> list[dict]:
-    """Mealie replaces list fields wholesale, so merging is our job."""
+    """Mealie replaces list fields wholesale, so merging is our job.
+
+    The existing side came off a GET, so it carries read-only metadata the
+    write path rejects; it is trimmed on the way back in.
+    """
     if replace:
         return incoming
-    merged = {item["id"]: item for item in (existing or []) if item.get("id")}
+    merged = {item["id"]: writable(item) for item in (existing or []) if item.get("id")}
     merged.update({item["id"]: item for item in incoming if item.get("id")})
     return list(merged.values())
 

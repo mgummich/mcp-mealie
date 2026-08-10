@@ -188,6 +188,65 @@ def test_ingredient_keeps_fragment_note_when_the_unit_resolved():
     assert payload["note"] == "saffron"
 
 
+def test_unparsed_ingredient_drops_the_quantity_the_text_already_carries():
+    # quantity 500 plus a note of "500 g Mehl" renders as "500 500 g Mehl".
+    payload = _normalize_ingredient(
+        {"quantity": 500, "unit": {"name": "g"}, "food": {"name": "Mehl"}},
+        original="500 g Mehl",
+    )
+
+    assert payload["quantity"] == 0
+    assert payload["note"] == "500 g Mehl"
+
+
+def test_resolved_ingredient_keeps_its_quantity_and_drops_food_metadata():
+    payload = _normalize_ingredient(
+        {
+            "quantity": 500,
+            "unit": {"id": "u1", "name": "g"},
+            "food": {"id": "f1", "name": "Mehl", "createdAt": "2024-01-01T00:00:00"},
+        },
+        original="500 g Mehl",
+    )
+
+    assert payload["quantity"] == 500
+    assert payload["food"] == {"id": "f1", "name": "Mehl"}
+
+
+@respx.mock
+async def test_delete_recipe_falls_back_to_the_bulk_endpoint_on_a_500():
+    # Mealie 500s deleting a recipe whose rows its ORM cannot cascade; the bulk
+    # endpoint deletes by id and gets through.
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast"})
+    )
+    respx.delete(f"{BASE}/api/recipes/roast").mock(return_value=httpx.Response(500))
+    bulk = respx.post(f"{BASE}/api/recipes/bulk-actions/delete").mock(
+        return_value=httpx.Response(200, json={})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = data(
+            await client.call_tool("delete_recipe", {"slug": "roast", "confirm_slug": "roast"})
+        )
+
+    assert result["deleted"] == "roast"
+    assert "bulk endpoint" in result["note"]
+    assert json.loads(bulk.calls.last.request.content)["recipes"] == ["r1"]
+
+
+@respx.mock
+async def test_delete_recipe_does_not_fall_back_on_a_404():
+    respx.get(f"{BASE}/api/recipes/ghost").mock(return_value=httpx.Response(404))
+    bulk = respx.post(f"{BASE}/api/recipes/bulk-actions/delete")
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="not found"):
+            await client.call_tool("delete_recipe", {"slug": "ghost", "confirm_slug": "ghost"})
+
+    assert bulk.call_count == 0
+
+
 @respx.mock
 async def test_search_by_unknown_food_returns_empty_not_error():
     # A food Mealie has never heard of provably matches no recipes.

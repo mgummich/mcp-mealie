@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Taxonomy objects are trimmed to the keys a write accepts before they go into
+  a recipe payload. Foods, units, tags, categories, and tools come off a read
+  carrying `createdAt`, `updatedAt`, and `householdsWithIngredientFood`, which
+  a write has no business echoing back — Mealie 3.22 tolerates them, but they
+  have been reported as 500s elsewhere and Mealie hydrates the row from its own
+  id regardless. The same trim applies to the existing tags a merge in
+  `update_recipe` reads back.
+- An ingredient line Mealie's parser could not resolve no longer keeps the
+  parsed quantity. The whole source line becomes the note, so the amount was
+  stored twice and rendered as "500 500 g flour".
+- `delete_recipe` falls back to `POST /api/recipes/bulk-actions/delete` when
+  the row-level delete answers 500, which is what a recipe whose rows the ORM
+  cannot cascade does. The result says when the fallback ran. A 404 still
+  fails as before.
+- A 5xx now reports FastAPI's `detail` when the body carries one, instead of
+  the raw first 200 characters of JSON.
+
 ## [0.2.1] - 2026-08-10
 
 ### Changed
