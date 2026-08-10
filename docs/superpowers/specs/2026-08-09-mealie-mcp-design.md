@@ -1,7 +1,10 @@
 # mcp-mealie — Design
 
 **Date:** 2026-08-09
-**Status:** Approved
+**Status:** Superseded by
+[`2026-08-10-mealie-mcp-current-state.md`](2026-08-10-mealie-mcp-current-state.md)
+— kept as the record of what was designed, not of what was built. Where the two
+disagree, the newer file is right.
 
 ## Purpose
 
