@@ -5,7 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-08-10
+
+### Added
+
+- `delete_recipe` falls back to `POST /api/recipes/bulk-actions/delete` when
+  the row-level delete answers 5xx, which is what a recipe whose rows Mealie's
+  ORM cannot cascade does. The result says when the fallback ran. A 404 still
+  fails as before, so a typo is never answered by a second attempt.
+- `MealieError`, a `ToolError` subclass carrying the HTTP status, so a tool can
+  branch on the status rather than on message text.
+- A spec describing the server as built —
+  `docs/superpowers/specs/2026-08-10-mealie-mcp-current-state.md`. Every tool
+  with its endpoint, the caches, the write semantics, and which parts of
+  Mealie's API this deliberately does not expose. The 2026-08-09 design
+  document is marked superseded; it was a plan, and the code had moved.
 
 ### Fixed
 
@@ -19,12 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An ingredient line Mealie's parser could not resolve no longer keeps the
   parsed quantity. The whole source line becomes the note, so the amount was
   stored twice and rendered as "500 500 g flour".
-- `delete_recipe` falls back to `POST /api/recipes/bulk-actions/delete` when
-  the row-level delete answers 500, which is what a recipe whose rows the ORM
-  cannot cascade does. The result says when the fallback ran. A 404 still
-  fails as before.
 - A 5xx now reports FastAPI's `detail` when the body carries one, instead of
   the raw first 200 characters of JSON.
+- The howto said `manage_taxonomy(action="list")` pages at 200. It pages at 50,
+  so anyone sizing a sweep off that number was out by a factor of four.
+- The install note told readers to keep the `@v0.2.0` pin while every command
+  around it used `v0.2.1`.
 
 ## [0.2.1] - 2026-08-10
 
@@ -175,6 +189,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multi-day random meal planning built into the tools.
 - Bundled agent skill at `skills/mealie/SKILL.md`.
 
+[0.3.0]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.3.0
 [0.2.1]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.2.1
 [0.2.0]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.2.0
 [0.1.0]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.1.0

@@ -27,7 +27,7 @@ No clone or virtualenv needed — `uvx` builds it straight from the tag.
   "command": "uvx",
   "args": [
     "--from",
-    "git+https://github.com/mgummich/mcp-mealie@v0.2.1",
+    "git+https://github.com/mgummich/mcp-mealie@v0.3.0",
     "mcp-mealie"
   ],
   "env": {
@@ -41,7 +41,7 @@ Create the token in Mealie under **Settings → API Tokens**.
 
 > [!NOTE]
 > Not on PyPI yet, so installs come from git — `uvx mcp-mealie` on its own
-> will not resolve. Keep the `@v0.2.1` pin: without a tag you get whatever
+> will not resolve. Keep the `@v0.3.0` pin: without a tag you get whatever
 > `main` holds the day `uv` resolves it.
 
 New to this? The [howto](https://mgummich.github.io/mcp-mealie/howto)
@@ -57,7 +57,7 @@ once. Full docs, including the
 claude mcp add mealie \
   --env MEALIE_URL=https://mealie.example.com \
   --env MEALIE_API_TOKEN=your-token \
-  -- uvx --from git+https://github.com/mgummich/mcp-mealie@v0.2.1 mcp-mealie
+  -- uvx --from git+https://github.com/mgummich/mcp-mealie@v0.3.0 mcp-mealie
 ```
 
 ### Claude Desktop, Cursor, Windsurf, Zed
