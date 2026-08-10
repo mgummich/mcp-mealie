@@ -8,7 +8,7 @@ import respx
 from fastmcp.exceptions import ToolError
 
 from mealie_mcp import client as client_module
-from mealie_mcp.client import MealieClient, slugify
+from mealie_mcp.client import MealieClient, MealieError, slugify
 
 BASE = "https://mealie.test"
 
@@ -107,6 +107,28 @@ async def test_get_retries_a_500(client):
 
 
 @respx.mock
+async def test_a_500_reports_the_fastapi_detail_and_its_status(client):
+    respx.post(f"{BASE}/api/recipes").mock(
+        return_value=httpx.Response(
+            500, json={"detail": "1 validation error for IngredientFood: createdAt"}
+        )
+    )
+
+    with pytest.raises(MealieError, match="createdAt") as raised:
+        await client.request("POST", "/api/recipes", json={"name": "x"})
+
+    assert raised.value.status == 500
+
+
+@respx.mock
+async def test_a_500_with_no_body_still_says_the_server_is_unhealthy(client):
+    respx.post(f"{BASE}/api/recipes").mock(return_value=httpx.Response(500))
+
+    with pytest.raises(ToolError, match="unhealthy"):
+        await client.request("POST", "/api/recipes", json={"name": "x"})
+
+
+@respx.mock
 async def test_writes_are_never_retried(client):
     # No idempotency key exists, so a retried create would duplicate the recipe.
     route = respx.post(f"{BASE}/api/recipes").mock(side_effect=httpx.ConnectError("boom"))
@@ -175,6 +197,32 @@ async def test_taxonomy_creates_missing_names_and_reports_them(client):
     _, created_again = await client.resolve_taxonomy("tags", ["Quick"])
     assert created_again == []
     assert create.call_count == 1
+
+
+@respx.mock
+async def test_taxonomy_drops_read_only_metadata_from_resolved_objects(client):
+    # Echoing createdAt/householdsWithIngredientFood back into a write is a 500
+    # from Mealie's ORM, not a validation error anyone can read.
+    respx.get(f"{BASE}/api/foods").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "id": "f1",
+                        "name": "Flour",
+                        "createdAt": "2024-01-01T00:00:00",
+                        "updatedAt": "2024-01-02T00:00:00",
+                        "householdsWithIngredientFood": [],
+                    }
+                ]
+            },
+        )
+    )
+
+    resolved, _ = await client.resolve_taxonomy("foods", ["flour"], create_missing=False)
+
+    assert resolved == [{"id": "f1", "name": "Flour"}]
 
 
 @respx.mock

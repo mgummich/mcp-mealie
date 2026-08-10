@@ -51,6 +51,20 @@ NON_MUTATING_POSTS = frozenset({"/api/parser/ingredients"})
 MAX_CACHED_DETAILS = MAX_LIBRARY_RECIPES
 
 
+class MealieError(ToolError):
+    """A ToolError that remembers the HTTP status it came from.
+
+    Tools that have a second way to reach the same outcome — deleting a recipe
+    whose row-level DELETE 500s, say — need to tell "Mealie is broken" apart
+    from "you asked for something that does not exist", and the message text is
+    not something to branch on.
+    """
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 class MealieClient:
     """Thin async wrapper over Mealie's REST API.
 
@@ -159,19 +173,20 @@ class MealieClient:
         status = response.status_code
 
         if status in (401, 403):
-            raise ToolError("authentication failed — check MEALIE_API_TOKEN")
+            raise MealieError("authentication failed — check MEALIE_API_TOKEN", status)
         if status == 404:
-            raise ToolError(not_found or "not found")
+            raise MealieError(not_found or "not found", status)
         if status == 422:
-            raise ToolError(f"Mealie rejected the request: {_validation_detail(response)}")
+            raise MealieError(f"Mealie rejected the request: {_error_detail(response)}", status)
         if status >= 500:
             # Mealie logs the Pydantic error server-side and often puts nothing
-            # in the body, but when it does that text is the only clue.
-            body = response.text[:200].strip()
-            detail = f": {body}" if body else " — the server is unhealthy"
-            raise ToolError(f"Mealie returned {status}{detail}")
+            # in the body, but when it does — a FastAPI `detail` or bare text —
+            # that is the only clue the caller gets.
+            detail = _error_detail(response)
+            suffix = f": {detail}" if detail else " — the server is unhealthy"
+            raise MealieError(f"Mealie returned {status}{suffix}", status)
         if status >= 400:
-            raise ToolError(f"Mealie returned {status}: {response.text[:200]}")
+            raise MealieError(f"Mealie returned {status}: {_error_detail(response)}", status)
 
         if status == 204 or not response.content:
             return None
@@ -220,7 +235,9 @@ class MealieClient:
 
         Returns:
             A tuple of (resolved objects, names that had to be created), the
-            latter so tools can report what was new.
+            latter so tools can report what was new. Objects carry only the
+            keys a write accepts — the read payload's createdAt, updatedAt and
+            householdsWithIngredientFood 500 the ORM when echoed back.
 
         Raises:
             ToolError: If a name does not exist and create_missing is False.
@@ -241,7 +258,7 @@ class MealieClient:
                     raise ToolError(f"{resource[:-1]} {name!r} does not exist")
                 known[key] = await self.request("POST", path, json={"name": name})
                 created.append(name)
-            resolved.append(known[key])
+            resolved.append(writable(known[key]))
         return resolved, created
 
     async def taxonomy_names(self, resource: str, names: list[str]) -> list[str]:
@@ -431,6 +448,25 @@ async def map_concurrent(
     return await asyncio.gather(*(run(f) for f in factories), return_exceptions=True)
 
 
+#: Keys a taxonomy object may carry into a write. Everything else Mealie
+#: returns on a read — createdAt, updatedAt, householdsWithIngredientFood,
+#: extras — is metadata its ORM refuses to be handed back, as a 500 rather
+#: than a readable validation error.
+WRITABLE_TAXONOMY_KEYS = ("id", "name", "slug", "groupId")
+
+
+def writable(item: dict) -> dict:
+    """Trim a taxonomy object down to what a write payload may carry.
+
+    Args:
+        item: A tag, category, tool, food, or unit as Mealie returned it.
+
+    Returns:
+        The same object with read-only metadata dropped.
+    """
+    return {key: item[key] for key in WRITABLE_TAXONOMY_KEYS if item.get(key) is not None}
+
+
 def slugify(name: str) -> str:
     """Approximate Mealie's slug format: lowercase, hyphen-separated ASCII.
 
@@ -443,13 +479,21 @@ def slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")
 
 
-def _validation_detail(response: httpx.Response) -> str:
-    """Trim FastAPI's 422 payload down to the failing fields."""
-    try:
-        detail = response.json().get("detail")
-    except ValueError:
-        return response.text[:200]
+def _error_detail(response: httpx.Response) -> str:
+    """Trim FastAPI's error payload down to the failing fields.
 
+    Used for 5xx as well as 422: Mealie serializes the Pydantic error into
+    `detail` on some paths, and that text names the offending field, where the
+    raw body is JSON noise.
+    """
+    try:
+        body = response.json()
+        detail = body.get("detail") if isinstance(body, dict) else None
+    except ValueError:
+        return response.text[:200].strip()
+
+    if not detail:
+        return response.text[:200].strip()
     if isinstance(detail, str):
         return detail[:200]
     if isinstance(detail, list):
