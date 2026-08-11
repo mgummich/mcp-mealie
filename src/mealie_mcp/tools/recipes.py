@@ -392,9 +392,9 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         an untitled note. Rating is 0-5.
 
         Renaming changes the slug: Mealie derives it from the name, and the
-        old one is a 404 from then on. The result carries the new slug plus
-        renamed_from — use that slug for anything you do next, above all
-        set_recipe_image.
+        old one is a 404 from then on. The result carries the new slug in
+        `slug`, plus `renamed_from` holding the old, now dead one. Use `slug`
+        for anything you do next, above all set_recipe_image.
         """
         client = get_client()
         current = await client.request(
