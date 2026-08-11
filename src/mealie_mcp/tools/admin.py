@@ -13,7 +13,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from .. import shape
-from ..client import MERGE_KEYS, TAXONOMY_PATHS, MealieClient
+from ..client import MERGE_KEYS, TAXONOMY_PATHS, MealieClient, MealieError
 
 GetClient = Callable[[], MealieClient]
 
@@ -107,9 +107,26 @@ async def _apply(
 
     if not item_id:
         raise ToolError("delete requires an item_id (get it from action='list')")
-    await client.request(
-        "DELETE", f"{path}/{item_id}", not_found=f"{resource} item {item_id!r} not found"
-    )
+    try:
+        await client.request(
+            "DELETE", f"{path}/{item_id}", not_found=f"{resource} item {item_id!r} not found"
+        )
+    except MealieError as exc:
+        # Mealie deletes the row directly, so anything still pointing at it —
+        # a recipe ingredient, a shopping list item — comes back as a foreign
+        # key violation. Nothing here can repoint those; merge can.
+        if exc.status != 409:
+            raise
+        raise ToolError(
+            f"{resource} item {item_id!r} is still referenced (by recipes and/or "
+            f"shopping list items), so Mealie refused the delete: {exc}. "
+            + (
+                f"Merge it into the item you are keeping instead: "
+                f"action='merge', item_id={item_id!r}, merge_into=<keeper>."
+                if resource in MERGE_KEYS
+                else "Remove it from everything that uses it first."
+            )
+        ) from exc
     client.forget_taxonomy(resource)
     return {"deleted": item_id}
 
