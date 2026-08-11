@@ -938,3 +938,22 @@ async def test_taxonomy_description_documents_writes_when_writable():
         tool = next(t for t in await client.list_tools() if t.name == "manage_taxonomy")
 
     assert "merge" in tool.description and "read-only" not in tool.description
+
+
+@respx.mock
+async def test_taxonomy_delete_points_a_409_at_merge():
+    # A food on a shopping list cannot be deleted at all; the raw
+    # ForeignKeyViolation says nothing about the way out.
+    respx.delete(f"{BASE}/api/foods/f1").mock(
+        return_value=httpx.Response(409, json={"detail": "ForeignKeyViolation"})
+    )
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError) as exc:
+            await client.call_tool(
+                "manage_taxonomy",
+                {"resource": "foods", "action": "delete", "item_id": "f1"},
+            )
+
+    assert "still referenced" in str(exc.value)
+    assert "merge" in str(exc.value)

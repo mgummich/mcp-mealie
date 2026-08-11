@@ -117,7 +117,10 @@ set one recipe's list exactly, use `update_recipe` with `replace_tags=True`.
 merge_into=<keeper>)` uses Mealie's own merge endpoint and repoints every
 recipe that used the loser. Deleting the duplicate instead strips it from
 those recipes — that is the difference worth confirming out loud before
-running it.
+running it. A food or unit that is still on a shopping list cannot be deleted
+at all: Mealie answers 409 and the tool says to merge instead. Note that
+`library_stats` counts recipe usage only, so a food it reports as unused may
+still be sitting on somebody's shopping list.
 
 **Rename in bulk.** Every action except `list` also takes `items=[…]` and runs
 the batch in one call, reporting per-item failures rather than stopping at the
