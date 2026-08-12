@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-08-12
+
+### Fixed
+
+- Deleting a food or unit that is still on a recipe or shopping list now
+  answers with an error naming the way out. Mealie deletes the row directly,
+  so a reference from anywhere still pointing at it comes back as a foreign
+  key violation, and nothing in this server can repoint those rows. The raw
+  "Mealie returned 409: ForeignKeyViolation" said nothing about that; the
+  error now points at `merge` for the resources that support it. `docs/HOWTO.md`
+  also now notes that `library_stats` counts recipe usage only, so a food it
+  reports as unused may still be sitting on somebody's shopping list.
+- The `update_recipe` docstring named the wrong field for the slug to use
+  after a rename. "The result carries the new slug plus `renamed_from` — use
+  that slug" pointed at `renamed_from`, its nearest antecedent, which is the
+  old slug and a 404 from then on. It now says to use `slug`, the live one.
+
 ## [0.3.0] - 2026-08-10
 
 ### Added
@@ -189,6 +206,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multi-day random meal planning built into the tools.
 - Bundled agent skill at `skills/mealie/SKILL.md`.
 
+[0.3.1]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.3.1
 [0.3.0]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.3.0
 [0.2.1]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.2.1
 [0.2.0]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.2.0
