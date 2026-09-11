@@ -8,10 +8,10 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-github.io-blue)](https://mgummich.github.io/mcp-mealie/)
 
-Twenty-five curated tools over recipes, meal plans, cookbooks, and library
-cleanup, with responses trimmed hard enough that a recipe costs a few hundred
-tokens instead of a few thousand — and sent once, not in the two copies MCP
-would otherwise put on the wire.
+Forty-three curated tools over recipes, meal plans, shopping lists,
+cookbooks, and library cleanup, with responses trimmed hard enough that a
+recipe costs a few hundred tokens instead of a few thousand — and sent once,
+not in the two copies MCP would otherwise put on the wire.
 
 Works with any MCP client that speaks stdio: Claude Code, Claude Desktop,
 Cursor, Windsurf, Zed.
@@ -100,6 +100,7 @@ Released versions are listed in the
 | `MEALIE_READ_ONLY` | — | `false` | Hide every write tool |
 | `MEALIE_VERIFY_SSL` | — | `true` | Set false for self-signed certs (homelab only) |
 | `MEALIE_LOG_LEVEL` | — | `INFO` | Log verbosity, to stderr |
+| `MEALIE_MAX_CONCURRENCY` | — | `4` | Mealie requests in flight at once, across all tools |
 
 Booleans accept `1/true/yes/on` and their negations. An unrecognized value is a
 startup error rather than a silent false.
@@ -110,20 +111,25 @@ take precedence over the file.
 
 > [!NOTE]
 > Requires Mealie **2.0 or newer**. The server checks at startup and refuses to
-> run against 1.x, which has no `/api/households` endpoints. CI tests against
-> 2.8.0; 3.x is in use and works, but is not covered by an automated run.
+> run against 1.x, which has no `/api/households` endpoints. CI runs the
+> integration suite against **2.8.0 and 3.25.1** — the oldest release supported
+> and the newest stable one — on every push. Two things are 3.x only:
+> `import_recipe_from_images`, and the `snack`, `drink`, and `dessert` meal
+> plan entry types. On 2.x Mealie rejects those itself, with its own message.
 
 ## 🧰 Tools
 
 | Category | Tools |
 | --- | --- |
-| 🥘 **Recipes** | `search_recipes` · `get_recipe` · `suggest_recipes` · `create_recipe` · `update_recipe` · `set_recipe_image` · `upload_recipe_image` · `bulk_tag_recipes` · `delete_recipe` · `import_recipe_from_url` |
-| 📅 **Meal plans** | `get_meal_plan` · `get_todays_meals` · `add_meal_plan_entry` · `delete_meal_plan_entry` · `random_meal_plan` |
+| 🥘 **Recipes** | `search_recipes` · `get_recipe` · `suggest_recipes` · `create_recipe` · `update_recipe` · `duplicate_recipe` · `set_recipe_image` · `upload_recipe_image` · `bulk_tag_recipes` · `delete_recipe` · `import_recipe_from_url` · `import_recipe_from_images` |
+| 📅 **Meal plans** | `get_meal_plan` · `get_todays_meals` · `add_meal_plan_entry` · `update_meal_plan_entry` · `delete_meal_plan_entry` · `random_meal_plan` |
+| 🛒 **Shopping lists** | `list_shopping_lists` · `get_shopping_list` · `create_shopping_list` · `delete_shopping_list` · `add_shopping_item` · `update_shopping_item` · `delete_shopping_item` · `add_recipe_to_shopping_list` |
+| 🍳 **Cooking history** | `mark_recipe_made` · `get_recipe_timeline` · `get_recipe_rating` · `rate_recipe` · `get_recipe_comments` · `add_recipe_comment` · `delete_recipe_comment` |
 | 📚 **Cookbooks** | `list_cookbooks` · `get_cookbook_recipes` · `create_cookbook` · `update_cookbook` · `delete_cookbook` |
 | 📊 **Library reports** | `library_stats` · `find_duplicate_recipes` · `check_recipe_links` |
 | 🔧 **Other** | `parse_ingredients` · `manage_taxonomy` |
 
-With `MEALIE_READ_ONLY=true`, twelve read tools remain.
+With `MEALIE_READ_ONLY=true`, seventeen read tools remain.
 
 Once connected, ask in plain language — the agent picks the tools:
 
@@ -181,8 +187,12 @@ Once connected, ask in plain language — the agent picks the tools:
 
 - `MEALIE_READ_ONLY=true` prevents write tools from being registered at all.
 - `delete_recipe` requires the slug twice: `delete_recipe(slug, confirm_slug)`.
+  `delete_shopping_list` asks for its id twice the same way.
 - Write requests are never retried — Mealie has no idempotency key, and a
   retried create would duplicate the recipe.
+- One semaphore caps how many requests reach Mealie at once, shared by every
+  tool call, so a fan-out inside one tool and ten parallel tool calls add up to
+  the same ceiling rather than multiplying.
 
 ## 🎓 Agent skill
 
@@ -214,8 +224,11 @@ Unit tests run entirely offline: `shape.py` against captured fixtures,
 `client.py` against mocked HTTP.
 
 ```bash
-./scripts/integration.sh     # needs Docker: throwaway Mealie on port 19925
+./scripts/integration.sh                            # newest stable Mealie
+MEALIE_TEST_VERSION=v2.8.0 ./scripts/integration.sh # or any other tag
 ```
+
+Needs Docker; the throwaway instance listens on port 19925.
 
 The integration suite spins up a real Mealie in Docker, runs
 `tests/integration/` against it, and tears everything down.

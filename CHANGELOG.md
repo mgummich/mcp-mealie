@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Shopping lists: `list_shopping_lists`, `get_shopping_list`,
+  `create_shopping_list`, `delete_shopping_list`, `add_shopping_item`,
+  `update_shopping_item`, `delete_shopping_item`, and
+  `add_recipe_to_shopping_list`, which pours a recipe's ingredients into a
+  list through Mealie's own endpoint and takes a batch count.
+- Cooking history: `mark_recipe_made` (defaults to now), `get_recipe_timeline`,
+  `get_recipe_rating`, `rate_recipe` (rating 0-5, 0 removes it; the same call
+  sets the favorite flag, which is how Mealie stores favorites),
+  `get_recipe_comments`, `add_recipe_comment`, and `delete_recipe_comment`.
+  `get_recipe` and `search_recipes` now report `last_made`.
+- `update_meal_plan_entry`, so changing a planned meal no longer means deleting
+  and recreating it. Entry types now include Mealie 3.x's `snack`, `drink`, and
+  `dessert`.
+- `duplicate_recipe`, through Mealie's own duplicate endpoint, optionally
+  naming the copy.
+- `import_recipe_from_images`, which hands local photos to Mealie's AI import.
+  Needs an AI provider configured on the instance, and is Mealie 3.x only.
+- `parse_ingredients(lines, parser=...)` selects Mealie's parser: `nlp`
+  (default), `brute`, or `openai`.
+- `MEALIE_MAX_CONCURRENCY` (default 4) caps how many requests reach Mealie at
+  once. The cap is one semaphore per client, so concurrent tool calls share it
+  instead of each getting their own fan-out budget.
+
+### Changed
+
+- The integration suite runs against the newest stable Mealie (3.25.1) by
+  default, and CI runs it against 2.8.0 as well — the oldest release this
+  server supports. `MEALIE_TEST_VERSION` picks the release for a local run.
+- A Mealie refusal that nests its message one level inside `detail` — "AI
+  services are not enabled", for one — now surfaces as that sentence rather
+  than the serialized object.
+- A request that times out now says Mealie is reachable but slow and points at
+  `MEALIE_MAX_CONCURRENCY`, instead of reporting it as unreachable and sending
+  people to check their URL ([#29](https://github.com/mgummich/mcp-mealie/issues/29)).
+
 ## [0.3.1] - 2026-08-12
 
 ### Fixed

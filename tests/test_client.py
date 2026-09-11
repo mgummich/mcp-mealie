@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 import pytest
 import respx
@@ -87,6 +89,19 @@ async def test_transport_failure_names_the_instance(client):
 
 
 @respx.mock
+async def test_a_timeout_says_overloaded_rather_than_unreachable(client):
+    # An instance serving more parallel work than its database pool allows is
+    # reachable but silent, and "unreachable" sends people to check their URL.
+    respx.get(f"{BASE}/api/recipes").mock(side_effect=httpx.ReadTimeout("slow"))
+
+    with pytest.raises(ToolError, match="did not answer within") as caught:
+        await client.request("GET", "/api/recipes")
+
+    assert "MEALIE_MAX_CONCURRENCY" in str(caught.value)
+    assert "unreachable" not in str(caught.value)
+
+
+@respx.mock
 async def test_get_retries_then_succeeds(client):
     route = respx.get(f"{BASE}/api/recipes").mock(
         side_effect=[httpx.ConnectError("boom"), httpx.Response(200, json={"items": []})]
@@ -104,6 +119,18 @@ async def test_get_retries_a_500(client):
 
     assert await client.request("GET", "/api/recipes") == {"ok": True}
     assert route.call_count == 2
+
+
+@respx.mock
+async def test_a_refusal_reports_the_message_mealie_nests_in_detail(client):
+    respx.post(f"{BASE}/api/recipes/create/ai").mock(
+        return_value=httpx.Response(
+            400, json={"detail": {"message": "AI services are not enabled", "error": True}}
+        )
+    )
+
+    with pytest.raises(MealieError, match=r"^Mealie returned 400: AI services are not enabled$"):
+        await client.request("POST", "/api/recipes/create/ai")
 
 
 @respx.mock
@@ -161,6 +188,17 @@ async def test_recipe_id_is_fetched_once_then_cached(client):
 
     assert await client.recipe_id("roast") == "uuid-1"
     assert await client.recipe_id("roast") == "uuid-1"
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_user_id_is_fetched_once_then_cached(client):
+    route = respx.get(f"{BASE}/api/users/self").mock(
+        return_value=httpx.Response(200, json={"id": "u1", "username": "mo"})
+    )
+
+    assert await client.user_id() == "u1"
+    assert await client.user_id() == "u1"
     assert route.call_count == 1
 
 
@@ -303,6 +341,38 @@ async def test_recipe_details_cache_is_bounded(client, monkeypatch):
     await client.recipe_details(["a"])
 
     assert routes["a"].call_count == 2
+
+
+@respx.mock
+async def test_max_concurrency_caps_in_flight_mealie_requests():
+    # A sweep (recipe_details) and a handful of plain requests running at the
+    # same time must still share one cap — a per-call semaphore would let
+    # each fan-out multiply pressure on Mealie instead of bounding it.
+    in_flight = 0
+    peak = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.01)
+        in_flight -= 1
+        return httpx.Response(200, json={"slug": request.url.path.rsplit("/", 1)[-1]})
+
+    respx.get(url__regex=rf"{BASE}/api/recipes/.*").mock(side_effect=handler)
+
+    limited = MealieClient(BASE, "secret-token", max_concurrency=2)
+    try:
+        await asyncio.gather(
+            limited.request("GET", "/api/recipes/r1"),
+            limited.request("GET", "/api/recipes/r2"),
+            limited.request("GET", "/api/recipes/r3"),
+            limited.recipe_details(["s1", "s2", "s3", "s4"]),
+        )
+    finally:
+        await limited.aclose()
+
+    assert peak <= 2
 
 
 @pytest.mark.parametrize(

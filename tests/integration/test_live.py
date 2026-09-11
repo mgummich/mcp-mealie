@@ -13,9 +13,11 @@ import base64
 import os
 from datetime import date, timedelta
 
+import httpx
 import pytest
 from conftest import data
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 
 from mealie_mcp.config import Config
 from mealie_mcp.server import build_server
@@ -24,6 +26,18 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("MEALIE_INTEGRATION") != "1",
     reason="integration tests run via scripts/integration.sh (MEALIE_INTEGRATION=1)",
 )
+
+
+def _mealie_major() -> int:
+    """Major version of the instance under test, or 0 when not running."""
+    if os.environ.get("MEALIE_INTEGRATION") != "1":
+        return 0
+    about = httpx.get(f"{os.environ['MEALIE_URL']}/api/app/about", timeout=10).json()
+    return int(str(about.get("version") or "0").lstrip("v").split(".")[0])
+
+
+#: Recipe import from images is a Mealie 3.x endpoint; 2.x answers 405.
+needs_mealie_3 = pytest.mark.skipif(_mealie_major() < 3, reason="needs Mealie 3.x")
 
 
 @pytest.fixture
@@ -154,3 +168,131 @@ async def test_parse_ingredients(client):
     items = data(parsed)["items"]
     assert len(items) == 1
     assert items[0]["input"] == "3 cups oats"
+
+
+async def test_parser_selection(client):
+    parsed = await client.call_tool(
+        "parse_ingredients", {"lines": ["3 cups oats"], "parser": "brute"}
+    )
+    assert data(parsed)["items"][0]["input"] == "3 cups oats"
+
+
+async def test_shopping_list_roundtrip(client):
+    created = await client.call_tool("create_recipe", {"name": "Shopping Test Stew"})
+    slug = data(created)["slug"]
+    book = await client.call_tool("create_shopping_list", {"name": "Integration Test List"})
+    list_id = data(book)["list_id"]
+    try:
+        assert any(
+            b["list_id"] == list_id
+            for b in data(await client.call_tool("list_shopping_lists"))["items"]
+        )
+
+        added = await client.call_tool(
+            "add_shopping_item", {"list_id": list_id, "item": "2 lemons"}
+        )
+        item_id = data(added)["item_id"]
+        # quantity 0 is what keeps Mealie from rendering this as "1 2 lemons".
+        assert data(added)["item"] == "2 lemons"
+
+        checked = await client.call_tool(
+            "update_shopping_item", {"item_id": item_id, "checked": True}
+        )
+        assert data(checked)["checked"] is True
+
+        await client.call_tool(
+            "update_recipe", {"slug": slug, "ingredients": ["1 onion", "2 carrots"]}
+        )
+        filled = await client.call_tool(
+            "add_recipe_to_shopping_list", {"list_id": list_id, "recipe_slug": slug}
+        )
+        assert data(filled)["count"] > 1
+
+        fetched = await client.call_tool("get_shopping_list", {"list_id": list_id})
+        assert data(fetched)["count"] == data(filled)["count"]
+
+        deleted = await client.call_tool("delete_shopping_item", {"item_id": item_id})
+        assert data(deleted) == {"deleted": item_id}
+    finally:
+        await client.call_tool(
+            "delete_shopping_list", {"list_id": list_id, "confirm_list_id": list_id}
+        )
+        await client.call_tool("delete_recipe", {"slug": slug, "confirm_slug": slug})
+
+
+async def test_cooking_history_roundtrip(client):
+    created = await client.call_tool("create_recipe", {"name": "History Test Curry"})
+    slug = data(created)["slug"]
+    try:
+        made = await client.call_tool("mark_recipe_made", {"slug": slug, "when": "2026-01-02"})
+        assert data(made)["last_made"].startswith("2026-01-02")
+        assert data(await client.call_tool("get_recipe", {"slug": slug}))["last_made"].startswith(
+            "2026-01-02"
+        )
+
+        rated = await client.call_tool("rate_recipe", {"slug": slug, "rating": 4, "favorite": True})
+        assert data(rated) == {"slug": slug, "rating": 4, "favorite": True}
+        assert data(await client.call_tool("get_recipe_rating", {"slug": slug})) == {
+            "slug": slug,
+            "rating": 4,
+            "favorite": True,
+        }
+
+        comment = await client.call_tool("add_recipe_comment", {"slug": slug, "text": "Too salty"})
+        comment_id = data(comment)["comment_id"]
+        listed = data(await client.call_tool("get_recipe_comments", {"slug": slug}))
+        assert [c["text"] for c in listed["items"]] == ["Too salty"]
+        await client.call_tool("delete_recipe_comment", {"comment_id": comment_id})
+
+        # Mealie writes a "Recipe Created" event of its own, so the timeline is
+        # never empty for a recipe this test just made.
+        timeline = data(await client.call_tool("get_recipe_timeline", {"slug": slug}))
+        assert timeline["count"] >= 1
+    finally:
+        await client.call_tool("delete_recipe", {"slug": slug, "confirm_slug": slug})
+
+
+async def test_duplicate_and_meal_plan_update(client):
+    created = await client.call_tool("create_recipe", {"name": "Duplicate Test Soup"})
+    slug = data(created)["slug"]
+    copy_slug = data(
+        await client.call_tool("duplicate_recipe", {"slug": slug, "name": "Duplicate Test Copy"})
+    )["slug"]
+    try:
+        assert copy_slug != slug
+        assert data(await client.call_tool("get_recipe", {"slug": copy_slug}))["name"] == (
+            "Duplicate Test Copy"
+        )
+
+        today = date.today()  # noqa: DTZ011
+        entry = await client.call_tool(
+            "add_meal_plan_entry", {"date": today.isoformat(), "recipe_slug": slug}
+        )
+        entry_id = data(entry)["entry_id"]
+        try:
+            updated = await client.call_tool(
+                "update_meal_plan_entry",
+                {"entry_id": entry_id, "entry_type": "lunch", "recipe_slug": copy_slug},
+            )
+            assert data(updated)["meal"] == "lunch"
+            assert data(updated)["recipe_slug"] == copy_slug
+            assert data(updated)["date"] == today.isoformat()
+        finally:
+            await client.call_tool("delete_meal_plan_entry", {"entry_id": entry_id})
+    finally:
+        for victim in (copy_slug, slug):
+            await client.call_tool("delete_recipe", {"slug": victim, "confirm_slug": victim})
+
+
+@needs_mealie_3
+async def test_image_import_reports_a_missing_ai_provider(client, tmp_path):
+    # The throwaway instance has no AI provider, so this proves the request
+    # shape reaches Mealie and that its refusal is passed through readably.
+    photo = tmp_path / "pixel.png"
+    photo.write_bytes(
+        base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )
+    )
+    with pytest.raises(ToolError, match="AI services are not enabled"):
+        await client.call_tool("import_recipe_from_images", {"paths": [str(photo)]})

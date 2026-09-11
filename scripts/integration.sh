@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Spin up a throwaway Mealie in Docker, run the integration tests against it,
-# tear it down. Requires docker compose and uv.
+# tear it down. Requires docker compose and uv. MEALIE_TEST_VERSION picks the
+# Mealie release; compose.yml holds the default.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

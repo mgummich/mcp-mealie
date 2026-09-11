@@ -1,6 +1,6 @@
 services:
   mealie:
-    image: ghcr.io/mealie-recipes/mealie:v2.8.0
+    image: ghcr.io/mealie-recipes/mealie:${MEALIE_TEST_VERSION:-v3.25.1}
     ports:
       # Not 9925: that is the port Mealie's own docs use, so a developer's
       # real local instance would collide.

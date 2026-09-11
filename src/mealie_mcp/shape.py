@@ -113,8 +113,8 @@ def recipe_detail(recipe: dict) -> dict:
 
     Returns:
         Dict with name, slug, times, flattened ingredients/instructions,
-        tag/category names, source URL, rating, and notes; empty fields
-        dropped.
+        tag/category names, source URL, rating, last_made, and notes; empty
+        fields dropped.
     """
     return _clean(
         {
@@ -132,6 +132,7 @@ def recipe_detail(recipe: dict) -> dict:
             "tools": names(recipe.get("tools")),
             "source_url": recipe.get("orgURL"),
             "rating": recipe.get("rating"),
+            "last_made": recipe.get("lastMade"),
             "notes": [
                 _clean({"title": n.get("title"), "text": n.get("text")})
                 for n in recipe.get("notes") or []
@@ -156,6 +157,7 @@ DETAIL_FIELDS = (
     "tools",
     "source_url",
     "rating",
+    "last_made",
     "notes",
 )
 
@@ -230,6 +232,45 @@ def cookbook(book: dict) -> dict:
     )
 
 
+def shopping_list(book: dict) -> dict:
+    """Shape one shopping list summary.
+
+    Args:
+        book: A raw ShoppingListOut object (summary or detail form).
+
+    Returns:
+        Dict with list_id and name, plus a recipe count when the list has
+        linked recipes; empty fields dropped.
+    """
+    return _clean(
+        {
+            "list_id": book.get("id"),
+            "name": book.get("name"),
+            "recipe_count": len(book.get("recipeReferences") or []) or None,
+        }
+    )
+
+
+def shopping_item(item: dict) -> dict:
+    """Shape one shopping list item.
+
+    Args:
+        item: A raw ShoppingListItemOut object.
+
+    Returns:
+        Dict with item_id, item (Mealie's own rendered display text),
+        checked, and label; empty fields dropped.
+    """
+    return _clean(
+        {
+            "item_id": item.get("id"),
+            "item": item.get("display"),
+            "checked": item.get("checked"),
+            "label": (item.get("label") or {}).get("name"),
+        }
+    )
+
+
 def parsed_ingredient(parsed: dict) -> dict:
     """Shape one result from Mealie's ingredient parser.
 
@@ -279,6 +320,48 @@ def taxonomy_item(item: dict) -> dict:
             "label": (item.get("label") or {}).get("name"),
             "color": item.get("color"),
             "aliases": names(item.get("aliases")),
+        }
+    )
+
+
+def timeline_event(event: dict) -> dict:
+    """Shape one recipe timeline event.
+
+    Args:
+        event: A raw RecipeTimelineEventOut object.
+
+    Returns:
+        Dict with event_id, timestamp, subject, message, and type; empty
+        fields dropped.
+    """
+    return _clean(
+        {
+            "event_id": event.get("id"),
+            "timestamp": event.get("timestamp"),
+            "subject": event.get("subject"),
+            "message": event.get("eventMessage"),
+            "type": event.get("eventType"),
+        }
+    )
+
+
+def recipe_comment(comment: dict) -> dict:
+    """Shape one recipe comment.
+
+    Args:
+        comment: A raw RecipeCommentOut object.
+
+    Returns:
+        Dict with comment_id, text, author, and created_at; empty fields
+        dropped.
+    """
+    user = comment.get("user") or {}
+    return _clean(
+        {
+            "comment_id": comment.get("id"),
+            "text": comment.get("text"),
+            "author": user.get("fullName") or user.get("username"),
+            "created_at": comment.get("createdAt"),
         }
     )
 

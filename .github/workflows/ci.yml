@@ -23,9 +23,17 @@ jobs:
 
   integration:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest release this server claims to support, and the newest
+        # stable one. Both are what the README's compatibility note rests on.
+        mealie: ["v2.8.0", "v3.25.1"]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v9.0.0
         with:
           python-version: "3.12"
       - run: ./scripts/integration.sh
+        env:
+          MEALIE_TEST_VERSION: ${{ matrix.mealie }}

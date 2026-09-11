@@ -17,6 +17,7 @@ def clean_env(monkeypatch):
         "MEALIE_READ_ONLY",
         "MEALIE_VERIFY_SSL",
         "MEALIE_LOG_LEVEL",
+        "MEALIE_MAX_CONCURRENCY",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -84,6 +85,26 @@ def test_verify_ssl_can_be_disabled(monkeypatch):
     set_env(monkeypatch, MEALIE_VERIFY_SSL="false")
 
     assert Config.from_env().verify_ssl is False
+
+
+def test_max_concurrency_defaults_to_four(monkeypatch):
+    set_env(monkeypatch)
+
+    assert Config.from_env().max_concurrency == 4
+
+
+def test_max_concurrency_can_be_set(monkeypatch):
+    set_env(monkeypatch, MEALIE_MAX_CONCURRENCY="10")
+
+    assert Config.from_env().max_concurrency == 10
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "nope", "1.5"])
+def test_max_concurrency_rejects_non_positive_or_non_integer_values(monkeypatch, value):
+    set_env(monkeypatch, MEALIE_MAX_CONCURRENCY=value)
+
+    with pytest.raises(ConfigError, match="MEALIE_MAX_CONCURRENCY must be a positive integer"):
+        Config.from_env()
 
 
 def test_a_dotenv_file_supplies_missing_variables(monkeypatch, tmp_path):

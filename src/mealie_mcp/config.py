@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 from dotenv import find_dotenv, load_dotenv
 
+from .client import DEFAULT_CONCURRENCY
+
 TRUTHY = {"1", "true", "yes", "on"}
 FALSY = {"0", "false", "no", "off"}
 
@@ -30,6 +32,19 @@ def _parse_bool(name: str, default: bool) -> bool:
     raise ConfigError(f"{name} must be one of: {allowed} (got {raw!r})")
 
 
+def _parse_positive_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        raise ConfigError(f"{name} must be a positive integer (got {raw!r})") from None
+    if value <= 0:
+        raise ConfigError(f"{name} must be a positive integer (got {raw!r})")
+    return value
+
+
 @dataclass(frozen=True)
 class Config:
     """Validated runtime configuration, normally built via from_env().
@@ -40,6 +55,8 @@ class Config:
         read_only: When True, write tools are not registered at all.
         verify_ssl: Verify TLS certificates; disable for self-signed certs.
         log_level: Python logging level name, e.g. "INFO" or "DEBUG".
+        max_concurrency: How many Mealie requests this client runs at once,
+            shared across every concurrent MCP tool call.
     """
 
     url: str
@@ -47,6 +64,7 @@ class Config:
     read_only: bool = False
     verify_ssl: bool = True
     log_level: str = "INFO"
+    max_concurrency: int = DEFAULT_CONCURRENCY
 
     @classmethod
     def from_env(cls) -> Config:
@@ -60,7 +78,8 @@ class Config:
 
         Raises:
             ConfigError: If MEALIE_URL or MEALIE_API_TOKEN is missing or
-                malformed, or a boolean variable has an unrecognized value.
+                malformed, a boolean variable has an unrecognized value, or
+                MEALIE_MAX_CONCURRENCY is not a positive integer.
         """
         # usecwd: without it dotenv searches upward from this module's directory
         # (inside site-packages for an installed copy), not the user's cwd.
@@ -84,4 +103,5 @@ class Config:
             read_only=_parse_bool("MEALIE_READ_ONLY", False),
             verify_ssl=_parse_bool("MEALIE_VERIFY_SSL", True),
             log_level=(os.environ.get("MEALIE_LOG_LEVEL") or "INFO").strip().upper(),
+            max_concurrency=_parse_positive_int("MEALIE_MAX_CONCURRENCY", DEFAULT_CONCURRENCY),
         )

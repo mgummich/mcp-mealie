@@ -25,11 +25,16 @@ READ_TOOLS = {
     "get_todays_meals",
     "list_cookbooks",
     "get_cookbook_recipes",
+    "list_shopping_lists",
+    "get_shopping_list",
     "parse_ingredients",
     "manage_taxonomy",
     "library_stats",
     "find_duplicate_recipes",
     "check_recipe_links",
+    "get_recipe_timeline",
+    "get_recipe_rating",
+    "get_recipe_comments",
 }
 WRITE_TOOLS = {
     "create_recipe",
@@ -39,12 +44,25 @@ WRITE_TOOLS = {
     "bulk_tag_recipes",
     "delete_recipe",
     "import_recipe_from_url",
+    "duplicate_recipe",
+    "import_recipe_from_images",
     "add_meal_plan_entry",
+    "update_meal_plan_entry",
     "delete_meal_plan_entry",
     "random_meal_plan",
     "create_cookbook",
     "update_cookbook",
     "delete_cookbook",
+    "create_shopping_list",
+    "add_shopping_item",
+    "update_shopping_item",
+    "delete_shopping_item",
+    "add_recipe_to_shopping_list",
+    "delete_shopping_list",
+    "mark_recipe_made",
+    "rate_recipe",
+    "add_recipe_comment",
+    "delete_recipe_comment",
 }
 
 
@@ -303,6 +321,90 @@ async def test_random_meal_plan_raises_when_nothing_landed():
 
 
 @respx.mock
+async def test_update_meal_plan_entry_merges_onto_the_current_row():
+    # UpdatePlanEntry is a full replace; a bare {"title": ...} would drop the
+    # required identity fields Mealie needs on the PUT.
+    respx.get(f"{BASE}/api/households/mealplans/e1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "e1",
+                "date": "2026-09-01",
+                "entryType": "dinner",
+                "groupId": "g1",
+                "userId": "u1",
+                "title": "Old",
+            },
+        )
+    )
+    put = respx.put(f"{BASE}/api/households/mealplans/e1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "e1",
+                "date": "2026-09-01",
+                "entryType": "snack",
+                "groupId": "g1",
+                "userId": "u1",
+                "title": "New",
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "update_meal_plan_entry", {"entry_id": "e1", "title": "New", "entry_type": "snack"}
+        )
+
+    # The untouched date and the identity fields Mealie's PUT insists on have
+    # to survive; snack is one of the entry types 3.x added.
+    assert json.loads(put.calls.last.request.content) == {
+        "id": "e1",
+        "date": "2026-09-01",
+        "entryType": "snack",
+        "groupId": "g1",
+        "userId": "u1",
+        "title": "New",
+    }
+    assert data(result)["name"] == "New"
+
+
+@respx.mock
+async def test_update_meal_plan_entry_resolves_a_recipe_slug():
+    respx.get(f"{BASE}/api/households/mealplans/e1").mock(
+        return_value=httpx.Response(
+            200, json={"id": "e1", "date": "2026-09-01", "entryType": "dinner"}
+        )
+    )
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast"})
+    )
+    put = respx.put(f"{BASE}/api/households/mealplans/e1").mock(
+        return_value=httpx.Response(200, json={"id": "e1", "recipeId": "r1"})
+    )
+
+    async with Client(build_server(config())) as client:
+        await client.call_tool("update_meal_plan_entry", {"entry_id": "e1", "recipe_slug": "roast"})
+
+    assert json.loads(put.calls.last.request.content)["recipeId"] == "r1"
+
+
+async def test_update_meal_plan_entry_refuses_a_call_that_changes_nothing():
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="at least one field"):
+            await client.call_tool("update_meal_plan_entry", {"entry_id": "e1"})
+
+
+@respx.mock
+async def test_update_meal_plan_entry_reports_an_unknown_id():
+    respx.get(f"{BASE}/api/households/mealplans/ghost").mock(return_value=httpx.Response(404))
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="'ghost' not found"):
+            await client.call_tool("update_meal_plan_entry", {"entry_id": "ghost", "title": "New"})
+
+
+@respx.mock
 async def test_taxonomy_list_paginates_and_reports_the_total():
     # 400 foods behind a 200-row page must not read as "that is all of them".
     route = respx.get(f"{BASE}/api/foods").mock(
@@ -448,6 +550,78 @@ async def test_import_flags_a_scrape_that_found_nothing():
         result = await client.call_tool("import_recipe_from_url", {"url": "https://js.test/r"})
 
     assert "no ingredients or instructions" in data(result)["note"]
+
+
+@respx.mock
+async def test_duplicate_recipe_sends_the_given_name():
+    duplicate = respx.post(f"{BASE}/api/recipes/roast/duplicate").mock(
+        return_value=httpx.Response(201, json={"slug": "roast-2", "name": "Roast 2"})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("duplicate_recipe", {"slug": "roast", "name": "Roast 2"})
+
+    assert json.loads(duplicate.calls.last.request.read()) == {"name": "Roast 2"}
+    assert data(result)["slug"] == "roast-2"
+
+
+@respx.mock
+async def test_duplicate_recipe_without_a_name_sends_no_body():
+    duplicate = respx.post(f"{BASE}/api/recipes/roast/duplicate").mock(
+        return_value=httpx.Response(201, json={"slug": "roast-copy", "name": "Roast"})
+    )
+
+    async with Client(build_server(config())) as client:
+        await client.call_tool("duplicate_recipe", {"slug": "roast"})
+
+    assert json.loads(duplicate.calls.last.request.read()) == {}
+
+
+@respx.mock
+async def test_duplicate_recipe_reports_an_unknown_slug():
+    respx.post(f"{BASE}/api/recipes/ghost/duplicate").mock(return_value=httpx.Response(404))
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="not found"):
+            await client.call_tool("duplicate_recipe", {"slug": "ghost"})
+
+
+@respx.mock
+async def test_import_recipe_from_images_sends_one_part_per_file(tmp_path):
+    photo1 = tmp_path / "one.jpg"
+    photo2 = tmp_path / "two.png"
+    photo1.write_bytes(b"\xff\xd8\xff")
+    photo2.write_bytes(b"\x89PNG")
+    imported = respx.post(f"{BASE}/api/recipes/create/ai").mock(
+        return_value=httpx.Response(201, json="a-recipe")
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "import_recipe_from_images",
+            {"paths": [str(photo1), str(photo2)], "language": "de"},
+        )
+
+    body = imported.calls.last.request.read()
+    assert body.count(b'name="images"') == 2
+    assert b'name="one.jpg"' in body and b'name="two.png"' in body
+    assert b'name="translateLanguage"\r\n\r\nde\r\n' in body
+    assert data(result) == {"slug": "a-recipe", "images": 2}
+
+
+async def test_import_recipe_from_images_rejects_a_non_image(tmp_path):
+    doc = tmp_path / "notes.txt"
+    doc.write_text("not a photo")
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="not an image"):
+            await client.call_tool("import_recipe_from_images", {"paths": [str(doc)]})
+
+
+async def test_import_recipe_from_images_rejects_an_empty_list():
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="nothing to import"):
+            await client.call_tool("import_recipe_from_images", {"paths": []})
 
 
 @respx.mock
@@ -862,6 +1036,208 @@ async def test_update_cookbook_keeps_the_id_and_patches_onto_the_current_row():
 
 
 @respx.mock
+async def test_list_shopping_lists_shapes_the_page():
+    respx.get(f"{BASE}/api/households/shopping/lists").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {"id": "l1", "name": "Groceries", "recipeReferences": [{"recipeId": "r1"}]}
+                ],
+                "page": 1,
+                "total": 1,
+                "total_pages": 1,
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("list_shopping_lists")
+
+    assert data(result)["items"] == [{"list_id": "l1", "name": "Groceries", "recipe_count": 1}]
+
+
+@respx.mock
+async def test_get_shopping_list_returns_items():
+    respx.get(f"{BASE}/api/households/shopping/lists/l1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "l1",
+                "name": "Groceries",
+                "listItems": [{"id": "i1", "display": "2 lemons", "checked": False}],
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("get_shopping_list", {"list_id": "l1"})
+
+    body = data(result)
+    assert body["count"] == 1
+    assert body["items"] == [{"item_id": "i1", "item": "2 lemons", "checked": False}]
+
+
+@respx.mock
+async def test_get_shopping_list_reports_an_unknown_id():
+    respx.get(f"{BASE}/api/households/shopping/lists/ghost").mock(return_value=httpx.Response(404))
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="'ghost' not found"):
+            await client.call_tool("get_shopping_list", {"list_id": "ghost"})
+
+
+@respx.mock
+async def test_create_shopping_list_sends_the_name():
+    created = respx.post(f"{BASE}/api/households/shopping/lists").mock(
+        return_value=httpx.Response(201, json={"id": "l1", "name": "Groceries"})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("create_shopping_list", {"name": "Groceries"})
+
+    assert json.loads(created.calls.last.request.content) == {"name": "Groceries"}
+    assert data(result) == {"list_id": "l1", "name": "Groceries"}
+
+
+@respx.mock
+async def test_add_shopping_item_sends_quantity_zero_so_display_is_plain_text():
+    created = respx.post(f"{BASE}/api/households/shopping/items").mock(
+        return_value=httpx.Response(
+            201,
+            json={
+                "createdItems": [{"id": "i1", "display": "2 lemons", "checked": False}],
+                "updatedItems": [],
+                "deletedItems": [],
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("add_shopping_item", {"list_id": "l1", "item": "2 lemons"})
+
+    assert json.loads(created.calls.last.request.content) == {
+        "shoppingListId": "l1",
+        "note": "2 lemons",
+        "quantity": 0,
+    }
+    assert data(result) == {"item_id": "i1", "item": "2 lemons", "checked": False}
+
+
+@respx.mock
+async def test_update_shopping_item_merges_onto_the_current_row():
+    respx.get(f"{BASE}/api/households/shopping/items/i1").mock(
+        return_value=httpx.Response(
+            200,
+            json={"id": "i1", "shoppingListId": "l1", "note": "2 lemons", "checked": False},
+        )
+    )
+    put = respx.put(f"{BASE}/api/households/shopping/items/i1").mock(
+        return_value=httpx.Response(
+            200,
+            json={"updatedItems": [{"id": "i1", "display": "2 lemons", "checked": True}]},
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("update_shopping_item", {"item_id": "i1", "checked": True})
+
+    body = json.loads(put.calls.last.request.content)
+    assert body == {"id": "i1", "shoppingListId": "l1", "note": "2 lemons", "checked": True}
+    assert data(result) == {"item_id": "i1", "item": "2 lemons", "checked": True}
+
+
+@respx.mock
+async def test_update_shopping_item_rewrites_text_with_quantity_zero():
+    # Same reason as add_shopping_item: a quantity Mealie can render would turn
+    # "3 limes" into "1 3 limes" in the display it computes.
+    respx.get(f"{BASE}/api/households/shopping/items/i1").mock(
+        return_value=httpx.Response(
+            200,
+            json={"id": "i1", "shoppingListId": "l1", "note": "2 lemons", "quantity": 1},
+        )
+    )
+    put = respx.put(f"{BASE}/api/households/shopping/items/i1").mock(
+        return_value=httpx.Response(
+            200, json={"updatedItems": [{"id": "i1", "display": "3 limes"}]}
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "update_shopping_item", {"item_id": "i1", "item": "3 limes"}
+        )
+
+    body = json.loads(put.calls.last.request.content)
+    assert body["note"] == "3 limes"
+    assert body["quantity"] == 0
+    assert data(result)["item"] == "3 limes"
+
+
+async def test_update_shopping_item_refuses_a_call_that_changes_nothing():
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="at least one field"):
+            await client.call_tool("update_shopping_item", {"item_id": "i1"})
+
+
+@respx.mock
+async def test_delete_shopping_item():
+    respx.delete(f"{BASE}/api/households/shopping/items/i1").mock(
+        return_value=httpx.Response(200, json={"message": "ok", "error": False})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("delete_shopping_item", {"item_id": "i1"})
+
+    assert data(result) == {"deleted": "i1"}
+
+
+@respx.mock
+async def test_add_recipe_to_shopping_list_resolves_the_slug():
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast"})
+    )
+    post = respx.post(f"{BASE}/api/households/shopping/lists/l1/recipe/r1").mock(
+        return_value=httpx.Response(200, json={"id": "l1", "name": "Groceries"})
+    )
+
+    async with Client(build_server(config())) as client:
+        await client.call_tool(
+            "add_recipe_to_shopping_list", {"list_id": "l1", "recipe_slug": "roast", "quantity": 2}
+        )
+
+    assert json.loads(post.calls.last.request.content) == {"recipeIncrementQuantity": 2}
+
+
+@respx.mock
+async def test_delete_shopping_list_refuses_a_mismatched_confirmation():
+    delete = respx.delete(f"{BASE}/api/households/shopping/lists/l1")
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="does not match"):
+            await client.call_tool(
+                "delete_shopping_list", {"list_id": "l1", "confirm_list_id": "l2"}
+            )
+
+    assert not delete.called
+
+
+@respx.mock
+async def test_delete_shopping_list():
+    delete = respx.delete(f"{BASE}/api/households/shopping/lists/l1").mock(
+        return_value=httpx.Response(200, json={"id": "l1"})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "delete_shopping_list", {"list_id": "l1", "confirm_list_id": "l1"}
+        )
+
+    assert delete.called
+    assert data(result) == {"deleted": "l1"}
+
+
+@respx.mock
 async def test_suggest_recipes_resolves_names_to_ids_and_lists_what_is_missing():
     respx.get(f"{BASE}/api/foods").mock(
         return_value=httpx.Response(200, json={"items": [{"id": "f1", "name": "Rice"}]})
@@ -920,6 +1296,40 @@ async def test_set_recipe_image_reports_an_unknown_slug():
         with pytest.raises(ToolError, match="'ghost' not found"):
             await client.call_tool(
                 "set_recipe_image", {"slug": "ghost", "url": "https://example.com/x.jpg"}
+            )
+
+
+@respx.mock
+async def test_parse_ingredients_defaults_to_nlp():
+    route = respx.post(f"{BASE}/api/parser/ingredients").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+
+    async with Client(build_server(config())) as client:
+        await client.call_tool("parse_ingredients", {"lines": ["2 cups flour"]})
+
+    body = json.loads(route.calls.last.request.read())
+    assert body == {"ingredients": ["2 cups flour"], "parser": "nlp"}
+
+
+@respx.mock
+async def test_parse_ingredients_sends_the_given_parser():
+    route = respx.post(f"{BASE}/api/parser/ingredients").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+
+    async with Client(build_server(config())) as client:
+        await client.call_tool("parse_ingredients", {"lines": ["2 cups flour"], "parser": "brute"})
+
+    body = json.loads(route.calls.last.request.read())
+    assert body["parser"] == "brute"
+
+
+async def test_parse_ingredients_rejects_an_unknown_parser():
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="parser must be one of"):
+            await client.call_tool(
+                "parse_ingredients", {"lines": ["2 cups flour"], "parser": "gpt5"}
             )
 
 
@@ -1009,3 +1419,225 @@ async def test_create_recipe_rejects_a_malformed_ingredient_before_writing():
             await client.call_tool("create_recipe", {"name": "Stub", "ingredients": [42]})
 
     assert created.call_count == 0
+
+
+# --------------------------------------------------------------- feedback
+
+
+@respx.mock
+async def test_get_recipe_timeline_resolves_the_slug_and_shapes_events():
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast"})
+    )
+    events = respx.get(f"{BASE}/api/recipes/timeline/events").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "id": "e1",
+                        "timestamp": "2026-09-11T12:00:00Z",
+                        "subject": "roast",
+                        "eventMessage": "cooked",
+                        "eventType": "system",
+                    }
+                ],
+                "total": 1,
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("get_recipe_timeline", {"slug": "roast"})
+
+    assert events.calls.last.request.url.params["queryFilter"] == "recipeId=r1"
+    assert data(result)["items"] == [
+        {
+            "event_id": "e1",
+            "timestamp": "2026-09-11T12:00:00Z",
+            "subject": "roast",
+            "message": "cooked",
+            "type": "system",
+        }
+    ]
+
+
+@respx.mock
+async def test_get_recipe_rating_returns_the_callers_own_rating():
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast"})
+    )
+    respx.get(f"{BASE}/api/users/self/ratings/r1").mock(
+        return_value=httpx.Response(200, json={"recipeId": "r1", "rating": 4, "isFavorite": True})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("get_recipe_rating", {"slug": "roast"})
+
+    assert data(result) == {"slug": "roast", "rating": 4, "favorite": True}
+
+
+@respx.mock
+async def test_get_recipe_rating_reports_an_unrated_recipe_as_unrated():
+    # Mealie 404s the rating row a user has never written.
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast"})
+    )
+    respx.get(f"{BASE}/api/users/self/ratings/r1").mock(
+        return_value=httpx.Response(404, json={"detail": {"message": "User has not rated"}})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("get_recipe_rating", {"slug": "roast"})
+
+    assert data(result) == {"slug": "roast", "rating": None, "favorite": None}
+
+
+@respx.mock
+async def test_get_recipe_comments_shapes_the_bare_list():
+    respx.get(f"{BASE}/api/recipes/roast/comments").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "id": "c1",
+                    "text": "great",
+                    "createdAt": "2026-09-11T12:00:00Z",
+                    "user": {"id": "u1", "username": "mo", "fullName": "Mo"},
+                }
+            ],
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("get_recipe_comments", {"slug": "roast"})
+
+    assert data(result) == {
+        "items": [
+            {
+                "comment_id": "c1",
+                "text": "great",
+                "author": "Mo",
+                "created_at": "2026-09-11T12:00:00Z",
+            }
+        ],
+        "count": 1,
+    }
+
+
+@respx.mock
+async def test_get_recipe_comments_reports_an_unknown_slug():
+    respx.get(f"{BASE}/api/recipes/ghost/comments").mock(return_value=httpx.Response(404))
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="ghost"):
+            await client.call_tool("get_recipe_comments", {"slug": "ghost"})
+
+
+@respx.mock
+async def test_mark_recipe_made_defaults_to_now():
+    patch = respx.patch(f"{BASE}/api/recipes/roast/last-made").mock(
+        return_value=httpx.Response(200, json={})
+    )
+
+    from datetime import UTC, datetime
+
+    before = datetime.now(UTC)
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("mark_recipe_made", {"slug": "roast"})
+    after = datetime.now(UTC)
+
+    sent = json.loads(patch.calls.last.request.content)["timestamp"]
+    sent_dt = datetime.strptime(sent, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    # The timestamp is truncated to whole seconds, so it can read a hair
+    # before `before` once microseconds are dropped.
+    from datetime import timedelta
+
+    assert before - timedelta(seconds=1) <= sent_dt <= after
+    assert data(result) == {"slug": "roast", "last_made": sent}
+
+
+@respx.mock
+async def test_mark_recipe_made_accepts_a_plain_date():
+    patch = respx.patch(f"{BASE}/api/recipes/roast/last-made").mock(
+        return_value=httpx.Response(200, json={})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("mark_recipe_made", {"slug": "roast", "when": "2026-01-02"})
+
+    assert json.loads(patch.calls.last.request.content) == {"timestamp": "2026-01-02T00:00:00Z"}
+    assert data(result) == {"slug": "roast", "last_made": "2026-01-02T00:00:00Z"}
+
+
+async def test_mark_recipe_made_rejects_an_unparseable_when():
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="ISO date or datetime"):
+            await client.call_tool("mark_recipe_made", {"slug": "roast", "when": "not-a-date"})
+
+
+@respx.mock
+async def test_rate_recipe_sends_only_the_given_fields():
+    respx.get(f"{BASE}/api/users/self").mock(return_value=httpx.Response(200, json={"id": "u1"}))
+    post = respx.post(f"{BASE}/api/users/u1/ratings/roast").mock(
+        return_value=httpx.Response(200, json={})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("rate_recipe", {"slug": "roast", "favorite": True})
+
+    assert json.loads(post.calls.last.request.content) == {"isFavorite": True}
+    assert data(result) == {"slug": "roast", "favorite": True}
+
+
+async def test_rate_recipe_refuses_a_call_that_changes_nothing():
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="at least one field"):
+            await client.call_tool("rate_recipe", {"slug": "roast"})
+
+
+async def test_rate_recipe_rejects_an_out_of_range_rating():
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="between 0 and 5"):
+            await client.call_tool("rate_recipe", {"slug": "roast", "rating": 6})
+
+
+@respx.mock
+async def test_add_recipe_comment_resolves_the_slug():
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast"})
+    )
+    post = respx.post(f"{BASE}/api/comments").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "c1",
+                "text": "yum",
+                "createdAt": "2026-09-11T12:00:00Z",
+                "user": {"id": "u1", "username": "mo"},
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("add_recipe_comment", {"slug": "roast", "text": "yum"})
+
+    assert json.loads(post.calls.last.request.content) == {"recipeId": "r1", "text": "yum"}
+    assert data(result) == {
+        "comment_id": "c1",
+        "text": "yum",
+        "author": "mo",
+        "created_at": "2026-09-11T12:00:00Z",
+    }
+
+
+@respx.mock
+async def test_delete_recipe_comment():
+    respx.delete(f"{BASE}/api/comments/c1").mock(
+        return_value=httpx.Response(200, json={"message": "Comment deleted", "error": False})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("delete_recipe_comment", {"comment_id": "c1"})
+
+    assert data(result) == {"deleted": "c1"}
