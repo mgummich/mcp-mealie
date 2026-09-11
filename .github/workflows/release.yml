@@ -13,6 +13,8 @@ jobs:
       contents: write # create the release
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the previous tag, for the compare link
       - uses: astral-sh/setup-uv@v9.0.0
 
       - name: Tag must match __version__
@@ -34,19 +36,49 @@ jobs:
 
       - run: uv build
 
+      # The changelog section is the body; the install block and the footer
+      # are derived from the tag, so every release reads the same way without
+      # anyone remembering to write them. See docs/RELEASING.md.
       - name: Release notes from the changelog
         run: |
           version="${GITHUB_REF_NAME#v}"
+          repo="https://github.com/${GITHUB_REPOSITORY}"
           # The section for this version, up to the next "## " heading.
           awk -v v="$version" '
             $0 ~ "^## \\[" v "\\]" { found = 1; next }
             found && /^## / { exit }
             found { print }
-          ' CHANGELOG.md > notes.md
-          if [ ! -s notes.md ]; then
+          ' CHANGELOG.md > body.md
+          if [ ! -s body.md ]; then
             echo "CHANGELOG.md has no section for $version" >&2
             exit 1
           fi
+
+          previous=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+
+          {
+            echo '## 🚀 Install'
+            echo
+            echo '```json'
+            echo '{'
+            echo '  "command": "uvx",'
+            echo "  \"args\": [\"--from\", \"git+${repo}@${GITHUB_REF_NAME}\", \"mcp-mealie\"],"
+            echo '  "env": { "MEALIE_URL": "https://mealie.example.com", "MEALIE_API_TOKEN": "your-token" }'
+            echo '}'
+            echo '```'
+            echo
+            echo 'Upgrading? Change the tag, then `uv cache clean mcp-mealie` and restart the'
+            echo 'client — `uvx` otherwise keeps serving the revision it first resolved.'
+            echo
+            cat body.md
+            echo '---'
+            echo
+            printf '📖 [Changelog](%s/blob/main/CHANGELOG.md)' "$repo"
+            if [ -n "$previous" ]; then
+              printf ' · 🔍 [Full diff](%s/compare/%s...%s)' "$repo" "$previous" "$GITHUB_REF_NAME"
+            fi
+            printf ' · 🎓 [Agent skill](https://github.com/mgummich/mealie-skill)\n'
+          } > notes.md
 
       - name: Publish the release
         env:
