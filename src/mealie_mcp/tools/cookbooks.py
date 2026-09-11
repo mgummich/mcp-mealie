@@ -83,12 +83,17 @@ async def resolve_filter(
 
 def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
     @mcp.tool
-    async def list_cookbooks() -> dict:
-        """List cookbooks with their names, ids, and filters."""
+    async def list_cookbooks(page: int = 1) -> dict:
+        """List cookbooks with their names, ids, and filters.
+
+        More than 200 cookbooks come back a page at a time; the result says
+        when there is another page to ask for.
+        """
+        page = max(page, 1)
         result = await get_client().request(
-            "GET", "/api/households/cookbooks", params={"perPage": 200}
+            "GET", "/api/households/cookbooks", params={"page": page, "perPage": 200}
         )
-        return shape.paginated(result, shape.cookbook)
+        return shape.paginated(result, shape.cookbook, page_number=page)
 
     @mcp.tool
     async def get_cookbook_recipes(cookbook: str, page: int = 1, limit: int = 20) -> dict:

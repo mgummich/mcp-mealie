@@ -293,8 +293,8 @@ def paginated(page: dict, shaper: Callable[[dict], Any], *, page_number: int = 1
             "pass page=N+1 for more" hint.
 
     Returns:
-        Dict with items, count, and — when the server reports more rows than
-        were returned — total and a one-line pagination note.
+        Dict with items, count, and — when a further page exists — total and
+        a one-line pagination note.
     """
     items = [shaper(i) for i in page.get("items") or []]
     total = page.get("total")
@@ -302,8 +302,13 @@ def paginated(page: dict, shaper: Callable[[dict], Any], *, page_number: int = 1
 
     if isinstance(total, int):
         result["total"] = total
-        if total > len(items):
-            result["note"] = (
-                f"showing {len(items)} of {total} — pass page={page_number + 1} for more"
-            )
+        # total > len(items) is not enough: on the last page of a long result
+        # it is still true, and an agent following the hint pages forever.
+        current = page["page"] if isinstance(page.get("page"), int) else page_number
+        pages = page.get("total_pages")
+        if not isinstance(pages, int):
+            size = page.get("per_page") or page.get("perPage") or len(items)
+            pages = -(-total // size) if size else 1
+        if current < pages:
+            result["note"] = f"showing {len(items)} of {total} — pass page={current + 1} for more"
     return result

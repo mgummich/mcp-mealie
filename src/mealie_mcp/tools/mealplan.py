@@ -46,11 +46,16 @@ def _check_entry_type(entry_type: str) -> str:
 
 def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
     @mcp.tool
-    async def get_meal_plan(start_date: str, end_date: str) -> dict:
-        """Get planned meals between two ISO dates, inclusive."""
+    async def get_meal_plan(start_date: str, end_date: str, page: int = 1) -> dict:
+        """Get planned meals between two ISO dates, inclusive.
+
+        Long ranges come back a page at a time; the result says when there is
+        another page to ask for.
+        """
         start, end = _as_date(start_date, "start_date"), _as_date(end_date, "end_date")
         if end < start:
             raise ToolError("end_date is before start_date")
+        page = max(page, 1)
 
         result = await get_client().request(
             "GET",
@@ -58,10 +63,11 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             params={
                 "start_date": start.isoformat(),
                 "end_date": end.isoformat(),
+                "page": page,
                 "perPage": 200,
             },
         )
-        return shape.paginated(result, shape.meal_plan_entry)
+        return shape.paginated(result, shape.meal_plan_entry, page_number=page)
 
     @mcp.tool
     async def get_todays_meals() -> dict:

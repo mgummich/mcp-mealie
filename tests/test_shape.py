@@ -170,3 +170,15 @@ def test_pick_without_fields_is_a_passthrough(recipe):
 
 def test_detail_fields_matches_what_detail_can_return(recipe):
     assert set(shape.recipe_detail(recipe)) <= set(shape.DETAIL_FIELDS)
+
+
+def test_paginated_stops_hinting_on_the_last_page():
+    page = {"items": [{"name": "c", "slug": "c"}], "total": 3, "page": 2, "total_pages": 2}
+
+    assert "note" not in shape.paginated(page, shape.recipe_summary, page_number=2)
+
+
+def test_paginated_stops_hinting_past_the_last_page_without_total_pages():
+    page = {"items": [], "total": 3, "per_page": 2}
+
+    assert "note" not in shape.paginated(page, shape.recipe_summary, page_number=2)

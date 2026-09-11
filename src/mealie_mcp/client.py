@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from collections.abc import Awaitable, Callable
 from functools import partial
 from typing import Any
@@ -45,10 +46,36 @@ MERGE_KEYS = {
 #: POSTs that change nothing, so they must not invalidate the recipe cache.
 NON_MUTATING_POSTS = frozenset({"/api/parser/ingredients"})
 
+#: How long cached recipe bodies and taxonomy snapshots stay usable. Writes
+#: through this client invalidate what they touch, but an edit made in Mealie's
+#: UI or by another client does not, so the caches also expire on their own.
+CACHE_TTL_SECONDS = 300
+
 #: Ceiling on cached recipe bodies. One sweep of a large library is ~20MB of
 #: JSON; past this the cache is dropped rather than grown for the process
 #: lifetime.
 MAX_CACHED_DETAILS = MAX_LIBRARY_RECIPES
+
+
+#: Slug and ID values are interpolated straight into request paths, so a value
+#: carrying dot segments, an escape, or a query marker would send an
+#: authenticated request to an endpoint the tool never meant to reach.
+UNSAFE_PATH = re.compile(r"[?#\\]|(?:^|/)\.{1,2}(?:/|$)|%2e|%2f|%5c", re.IGNORECASE)
+
+
+def check_path(path: str) -> None:
+    """Reject a request path whose interpolated values escape their segment.
+
+    Args:
+        path: The API path about to be requested.
+
+    Raises:
+        ToolError: If the path could resolve somewhere other than intended.
+    """
+    if UNSAFE_PATH.search(path):
+        raise ToolError(
+            f"refusing to request {path!r} — slugs and ids must be a single path segment"
+        )
 
 
 class MealieError(ToolError):
@@ -93,6 +120,7 @@ class MealieClient:
         self._slug_ids: dict[str, str] = {}
         self._taxonomy: dict[str, dict[str, dict]] = {}
         self._details: dict[str, dict] = {}
+        self._cached_at = time.monotonic()
 
     async def aclose(self) -> None:
         """Close the underlying HTTP connection pool."""
@@ -135,6 +163,7 @@ class MealieClient:
             ToolError: On any HTTP error status or if Mealie is unreachable
                 after retries.
         """
+        check_path(path)
         method = method.upper()
         attempts = GET_RETRIES + 1 if method == "GET" else 1
         params = {k: v for k, v in (params or {}).items() if v is not None}
@@ -199,6 +228,20 @@ class MealieClient:
 
     # --------------------------------------------------------------- caches
 
+    def _expire_caches(self) -> None:
+        """Drop every cache once the TTL is up.
+
+        Nothing here notices an edit made outside this client, so without an
+        expiry a long-lived server reports stale ingredients and taxonomy
+        until it restarts.
+        """
+        now = time.monotonic()
+        if now - self._cached_at > CACHE_TTL_SECONDS:
+            self._slug_ids.clear()
+            self._taxonomy.clear()
+            self._details.clear()
+            self._cached_at = now
+
     async def recipe_id(self, slug: str) -> str:
         """Resolve a recipe slug to its UUID, caching the result.
 
@@ -211,6 +254,7 @@ class MealieClient:
         Raises:
             ToolError: If no recipe has that slug.
         """
+        self._expire_caches()
         if slug not in self._slug_ids:
             recipe = await self.request(
                 "GET", f"/api/recipes/{slug}", not_found=f"recipe {slug!r} not found"
@@ -334,6 +378,7 @@ class MealieClient:
         return items
 
     async def _load_taxonomy(self, resource: str) -> None:
+        self._expire_caches()
         if resource not in self._taxonomy:
             self._taxonomy[resource] = {
                 item["name"].casefold(): item
@@ -392,6 +437,7 @@ class MealieClient:
             One entry per slug: the recipe body, or None if it could not be
             read.
         """
+        self._expire_caches()
         unique = list(dict.fromkeys(slugs))
         # ponytail: drop the whole cache rather than evict one by one; the
         # caller is a sweep, and a half-populated cache re-fetches anyway.

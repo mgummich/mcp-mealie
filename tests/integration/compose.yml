@@ -4,6 +4,7 @@ services:
     ports:
       # Not 9925: that is the port Mealie's own docs use, so a developer's
       # real local instance would collide.
-      - "19925:9000"
+      # Loopback only: the container runs with default credentials.
+      - "127.0.0.1:19925:9000"
     environment:
       ALLOW_SIGNUP: "false"
