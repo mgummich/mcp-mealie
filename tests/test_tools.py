@@ -957,3 +957,55 @@ async def test_taxonomy_delete_points_a_409_at_merge():
 
     assert "still referenced" in str(exc.value)
     assert "merge" in str(exc.value)
+
+
+@respx.mock
+async def test_get_recipe_cannot_escape_the_recipe_endpoint():
+    users = respx.get(f"{BASE}/api/users/self").mock(
+        return_value=httpx.Response(200, json={"id": "1", "email": "me@test"})
+    )
+
+    async with Client(build_server(config(read_only=True))) as client:
+        with pytest.raises(ToolError, match="single path segment"):
+            await client.call_tool("get_recipe", {"slug": "../users/self", "full": True})
+
+    assert users.call_count == 0
+
+
+@respx.mock
+async def test_check_recipe_links_never_probes_a_loopback_source():
+    respx.get(f"{BASE}/api/recipes").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "slug": "internal",
+                        "name": "Internal",
+                        "orgURL": "http://127.0.0.1:12345/internal",
+                        "image": "1",
+                    }
+                ],
+                "total": 1,
+            },
+        )
+    )
+    internal = respx.head("http://127.0.0.1:12345/internal").mock(return_value=httpx.Response(200))
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("check_recipe_links", {})
+
+    assert internal.call_count == 0
+    assert data(result)["broken_sources"] == []
+    assert [u["slug"] for u in data(result)["unverified_sources"]] == ["internal"]
+
+
+@respx.mock
+async def test_create_recipe_rejects_a_malformed_ingredient_before_writing():
+    created = respx.post(f"{BASE}/api/recipes").mock(return_value=httpx.Response(201, json="stub"))
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="neither text lines nor objects"):
+            await client.call_tool("create_recipe", {"name": "Stub", "ingredients": [42]})
+
+    assert created.call_count == 0

@@ -331,3 +331,27 @@ async def test_taxonomy_pages_past_the_first_response(client, monkeypatch):
     assert route.call_count == 2
     assert resolved == [{"id": "f3", "name": "Chicken"}]
     assert created == []
+
+
+@respx.mock
+async def test_cached_recipe_details_expire_so_outside_edits_show_up(client, monkeypatch):
+    monkeypatch.setattr(client_module, "CACHE_TTL_SECONDS", 0)
+    route = respx.get(f"{BASE}/api/recipes/stew").mock(
+        return_value=httpx.Response(200, json={"slug": "stew"})
+    )
+
+    await client.recipe_details(["stew"])
+    await client.recipe_details(["stew"])
+
+    assert route.call_count == 2
+
+
+@respx.mock
+async def test_refuses_a_path_that_escapes_its_segment(client):
+    route = respx.get(f"{BASE}/api/users/self").mock(return_value=httpx.Response(200, json={}))
+
+    for path in ("/api/recipes/../users/self", "/api/recipes/x?full=1", "/api/recipes/a%2fb"):
+        with pytest.raises(ToolError, match="single path segment"):
+            await client.request("GET", path)
+
+    assert route.call_count == 0

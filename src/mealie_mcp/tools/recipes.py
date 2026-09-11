@@ -18,6 +18,10 @@ GetClient = Callable[[], MealieClient]
 #: What Mealie's image pipeline can read.
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
+#: Ceiling on an uploaded image. Reading the file blocks the event loop, and
+#: no recipe photo is anywhere near this big.
+MAX_IMAGE_BYTES = 20 * 1024 * 1024
+
 #: Hard ceiling on one page of search results. Mealie will happily return the
 #: whole library in one reply; nothing reads 2000 recipes, and the reply is the
 #: expensive part. Paginate instead.
@@ -97,6 +101,13 @@ async def _ingredient_payload(client: MealieClient, items: list[Any]) -> list[di
     """
     if not items:
         return []
+
+    bad = [i for i in items if not isinstance(i, (str, dict))]
+    if bad:
+        raise ToolError(
+            f"ingredients {bad} are neither text lines nor objects from "
+            "parse_ingredients — nothing was written"
+        )
 
     texts = [i for i in items if isinstance(i, str)]
     parsed_by_text: dict[str, dict] = {}
@@ -312,6 +323,10 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         """
         client = get_client()
 
+        # Parsed first: it validates the ingredients and writes nothing, so a
+        # malformed list fails before there is a stub recipe to clean up.
+        recipe_ingredient = await _ingredient_payload(client, ingredients or [])
+
         # Mealie's POST accepts {name} only and returns a slug; everything else
         # has to land in a follow-up PATCH.
         created = await client.request("POST", "/api/recipes", json={"name": name})
@@ -329,8 +344,8 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
                 payload["cookTime"] = cook_time
             if source_url is not None:
                 payload["orgURL"] = source_url
-            if ingredients:
-                payload["recipeIngredient"] = await _ingredient_payload(client, ingredients)
+            if recipe_ingredient:
+                payload["recipeIngredient"] = recipe_ingredient
             if instructions:
                 payload["recipeInstructions"] = _instruction_payload(instructions)
 
@@ -491,6 +506,13 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
                 f"{path!r} is not an image Mealie accepts ({', '.join(sorted(IMAGE_EXTENSIONS))})"
             )
         try:
+            if not image.is_file():
+                raise ToolError(f"{path!r} is not a regular file")
+            size = image.stat().st_size
+            if size > MAX_IMAGE_BYTES:
+                raise ToolError(
+                    f"{path!r} is {size} bytes — images over {MAX_IMAGE_BYTES} are not uploaded"
+                )
             content = image.read_bytes()
         except OSError as exc:
             raise ToolError(f"cannot read {path!r}: {exc}") from exc
