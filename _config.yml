@@ -10,7 +10,9 @@ kramdown:
   input: GFM
   syntax_highlighter: rouge
 
-# Everything that is code, tests, or packaging is not part of the site.
+# The site is the README, the howto, and the changelog, reached through the
+# wrapper pages that give them permalinks. Everything else — code, tests,
+# packaging, and the docs written for developers and agents — is not part of it.
 exclude:
   - src/
   - tests/
@@ -19,7 +21,13 @@ exclude:
   - .github/
   - pyproject.toml
   - uv.lock
+  - AGENTS.md
   - CONTRIBUTING.md
+  - SECURITY.md
+  - docs/ARCHITECTURE.md
+  - docs/RELEASING.md
+  - docs/REPO_AUDIT.md
+  - docs/archive/
 
 defaults:
   - scope:

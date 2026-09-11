@@ -51,7 +51,7 @@ in the real environment wins over the file. Keep `.env` out of version control;
 the token in it is a live credential.
 
 With `MEALIE_READ_ONLY=true` the write tools are never registered — the model
-cannot call them by accident, because it cannot see them. Twelve read tools
+cannot call them by accident, because it cannot see them. Seventeen read tools
 remain, which is enough for every question in step 3. Drop the variable once
 you like what the assistant proposes.
 
@@ -161,8 +161,8 @@ days per call.
   For anything table-wide, `library_stats` is cheaper and carries the counts.
 - **`update` is a patch.** Fields you do not mention keep their value.
 - **`delete_recipe` needs the slug twice** and is permanent. If Mealie's own
-  delete answers 500 — some rows its ORM cannot cascade do — the tool retries
-  through the bulk endpoint and tells you it did. A slug that does not exist
+  delete answers 500 — some rows its ORM cannot cascade do — the tool falls
+  back to the bulk endpoint and tells you it did. A slug that does not exist
   still fails, so a typo is never answered by a second attempt.
 - **An ingredient line the parser cannot place keeps its full text.** "1
   handful of gribenes" lands as a note rather than a quantity plus a food that

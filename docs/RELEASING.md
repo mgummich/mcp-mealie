@@ -1,9 +1,9 @@
 # Releasing
 
-A release is a tag. The `Release` workflow does the rest: it re-runs the
-gates, builds the wheel and sdist, cuts a GitHub Release, and attaches both.
-Installs read the tag directly, so the tag *is* the distribution — there is no
-package index in the loop.
+A release is a tag. The `Release` workflow does the rest: it re-runs the fast
+gate (lint, format, types, unit tests), builds the wheel and sdist, cuts a
+GitHub Release, and attaches both. Installs read the tag directly, so the tag
+*is* the distribution — there is no package index in the loop.
 
 Version lives in one place: `src/mealie_mcp/__init__.py` (`__version__`).
 `pyproject.toml` reads it via hatch. Two copies are written by hand and pinned
@@ -15,8 +15,9 @@ install tag in `README.md` and `docs/HOWTO.md`.
 2. Add a `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md`, and a link for
    it at the bottom. The workflow reads this section as the release notes and
    fails if it is missing.
-3. Run the gates: `uv run --extra dev pre-commit run --all-files`,
-   `uv run --extra dev pytest`, and `./scripts/integration.sh` (needs Docker).
+3. Run the full gate from
+   [`CONTRIBUTING.md`](../CONTRIBUTING.md#verify) — lint, types, unit tests,
+   and the integration suite against both supported Mealie versions.
 4. Commit, then tag and push:
 
    ```bash

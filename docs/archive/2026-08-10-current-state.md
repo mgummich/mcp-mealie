@@ -1,15 +1,15 @@
 # mcp-mealie — Current State
 
 **Date:** 2026-08-10
-**Status:** Current
-**Supersedes:** [`2026-08-09-mealie-mcp-design.md`](2026-08-09-mealie-mcp-design.md)
+**Status:** Historical — superseded by [`../ARCHITECTURE.md`](../ARCHITECTURE.md)
+**Supersedes:** [`2026-08-09-design.md`](2026-08-09-design.md)
 **Describes:** `v0.2.1` plus the unreleased write-path fixes on `main` (`0e4e02c`)
 
 > **Since this was written**, the server grew shopping lists, cooking history
 > (`last-made`, timeline, per-user ratings and favorites, comments),
 > `update_meal_plan_entry`, `duplicate_recipe`, `import_recipe_from_images`,
 > and parser selection on `parse_ingredients` — see the
-> [changelog](../../../CHANGELOG.md). Everything below still describes the
+> [changelog](../../CHANGELOG.md). Everything below still describes the
 > tools it names, but the coverage figures and the "deliberately not covered"
 > list predate those. Three things in that list stayed out on purpose:
 > **recipe assets**, which Mealie exposes only as an upload with no list or
