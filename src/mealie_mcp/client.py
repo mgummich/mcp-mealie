@@ -25,8 +25,14 @@ LIBRARY_PAGE_SIZE = 100
 #: are small; a typical library still comes back in one request.
 TAXONOMY_PAGE_SIZE = 500
 MAX_LIBRARY_RECIPES = 2000
-#: How many per-recipe requests a sweep runs at once.
+#: How many per-recipe requests a sweep runs at once, and the task cap for
+#: probing external source URLs in tools/library.py. Mealie itself is no
+#: longer bounded here — that's the client's own semaphore below.
 FANOUT = 8
+
+#: Default cap on concurrent outbound Mealie requests, shared by one client
+#: across every concurrent MCP tool call. Overridable via Config.max_concurrency.
+DEFAULT_CONCURRENCY = 4
 
 TAXONOMY_PATHS = {
     "foods": "/api/foods",
@@ -95,12 +101,19 @@ class MealieError(ToolError):
 class MealieClient:
     """Thin async wrapper over Mealie's REST API.
 
-    Also owns two process-lifetime caches: recipe slug -> UUID, and taxonomy
-    name -> object. Both exist because meal planning re-resolves the same
-    handful of recipes and tags over and over.
+    Also owns a set of caches that expire together on CACHE_TTL_SECONDS:
+    recipe slug -> UUID, taxonomy name -> object, fetched recipe bodies, and
+    the authenticated user's UUID. They exist because meal planning and the
+    library reports re-resolve the same handful of rows over and over.
     """
 
-    def __init__(self, url: str, token: str, verify_ssl: bool = True) -> None:
+    def __init__(
+        self,
+        url: str,
+        token: str,
+        verify_ssl: bool = True,
+        max_concurrency: int = DEFAULT_CONCURRENCY,
+    ) -> None:
         """Set up the HTTP client; no request is made until the first call.
 
         Args:
@@ -108,6 +121,10 @@ class MealieClient:
             token: Long-lived Mealie API token, sent as a bearer token.
             verify_ssl: Verify TLS certificates. Disable only for
                 self-signed homelab setups.
+            max_concurrency: How many Mealie requests this client runs at
+                once. One semaphore for the client's lifetime, so it caps
+                total pressure on Mealie regardless of how many MCP tool
+                calls are in flight concurrently.
         """
         self.url = url
         self._http = httpx.AsyncClient(
@@ -117,9 +134,11 @@ class MealieClient:
             timeout=TIMEOUT_SECONDS,
             follow_redirects=True,
         )
+        self._request_slots = asyncio.Semaphore(max_concurrency)
         self._slug_ids: dict[str, str] = {}
         self._taxonomy: dict[str, dict[str, dict]] = {}
         self._details: dict[str, dict] = {}
+        self._user_id: str | None = None
         self._cached_at = time.monotonic()
 
     async def aclose(self) -> None:
@@ -135,7 +154,7 @@ class MealieClient:
         *,
         params: dict | None = None,
         json: Any = None,
-        files: dict | None = None,
+        files: dict | list[tuple[str, tuple[str, bytes]]] | None = None,
         data: dict | None = None,
         not_found: str | None = None,
     ) -> Any:
@@ -151,7 +170,8 @@ class MealieClient:
             path: API path relative to the base URL, e.g. "/api/recipes".
             params: Query parameters; None values are dropped.
             json: JSON-serializable request body.
-            files: Multipart file parts, e.g. {"image": (name, bytes)}.
+            files: Multipart file parts, e.g. {"image": (name, bytes)}, or a
+                list of ("field", (name, bytes)) tuples to repeat a field.
             data: Multipart form fields, sent alongside files.
             not_found: Message to raise on a 404, e.g. "recipe 'x' not found".
 
@@ -171,9 +191,10 @@ class MealieClient:
         last_transport_error: Exception | None = None
         for attempt in range(attempts):
             try:
-                response = await self._http.request(
-                    method, path, params=params, json=json, files=files, data=data
-                )
+                async with self._request_slots:
+                    response = await self._http.request(
+                        method, path, params=params, json=json, files=files, data=data
+                    )
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 # Only GETs get here more than once; writes are never retried
                 # because Mealie has no idempotency key and a retried create
@@ -182,7 +203,7 @@ class MealieClient:
                 if attempt + 1 < attempts:
                     await asyncio.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
                     continue
-                raise ToolError(f"Mealie unreachable at {self.url}: {exc}") from exc
+                raise ToolError(self._unreachable(exc)) from exc
 
             if response.status_code >= 500 and attempt + 1 < attempts:
                 await asyncio.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
@@ -196,7 +217,23 @@ class MealieClient:
                 self._details.clear()
             return self._handle(response, not_found)
 
-        raise ToolError(f"Mealie unreachable at {self.url}: {last_transport_error}")
+        raise ToolError(self._unreachable(last_transport_error))
+
+    def _unreachable(self, exc: Exception | None) -> str:
+        """Word a transport failure for whichever of the two causes it was.
+
+        A timeout is not unreachability: Mealie is answering the socket but not
+        the request, which is what an instance under more parallel load than
+        its database pool can serve looks like from here. Saying "unreachable"
+        there sends people to check their URL and their network.
+        """
+        if isinstance(exc, httpx.TimeoutException):
+            return (
+                f"Mealie did not answer within {TIMEOUT_SECONDS:g}s at {self.url} — it is "
+                "reachable but slow, which is what an overloaded instance does. Lower "
+                "MEALIE_MAX_CONCURRENCY if several tools are running at once."
+            )
+        return f"Mealie unreachable at {self.url}: {exc}"
 
     def _handle(self, response: httpx.Response, not_found: str | None) -> Any:
         status = response.status_code
@@ -240,6 +277,7 @@ class MealieClient:
             self._slug_ids.clear()
             self._taxonomy.clear()
             self._details.clear()
+            self._user_id = None
             self._cached_at = now
 
     async def recipe_id(self, slug: str) -> str:
@@ -261,6 +299,18 @@ class MealieClient:
             )
             self._slug_ids[slug] = recipe["id"]
         return self._slug_ids[slug]
+
+    async def user_id(self) -> str:
+        """Resolve the authenticated user's UUID, caching it like the rest.
+
+        Returns:
+            The current user's UUID.
+        """
+        self._expire_caches()
+        if self._user_id is None:
+            me = await self.request("GET", "/api/users/self")
+            self._user_id = me["id"]
+        return self._user_id
 
     async def resolve_taxonomy(
         self, resource: str, names: list[str], *, create_missing: bool = True
@@ -542,6 +592,10 @@ def _error_detail(response: httpx.Response) -> str:
         return response.text[:200].strip()
     if isinstance(detail, str):
         return detail[:200]
+    if isinstance(detail, dict) and detail.get("message"):
+        # Mealie's own refusals — "AI services are not enabled" and friends —
+        # nest the human-readable line one level down.
+        return str(detail["message"])[:200]
     if isinstance(detail, list):
         parts = []
         for item in detail[:5]:

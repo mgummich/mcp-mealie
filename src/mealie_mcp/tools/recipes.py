@@ -131,6 +131,39 @@ async def _ingredient_payload(client: MealieClient, items: list[Any]) -> list[di
     ]
 
 
+def _read_image(path: str) -> tuple[Path, str, bytes]:
+    """Validate and read one local image file for upload.
+
+    Args:
+        path: Path to an image file on the machine running this server.
+
+    Returns:
+        A tuple of (resolved path, lowercase extension, file content).
+
+    Raises:
+        ToolError: If the extension is not one Mealie accepts, the path is
+            not a regular file, it is too big, or it cannot be read.
+    """
+    image = Path(path).expanduser()
+    extension = image.suffix.lower()
+    if extension not in IMAGE_EXTENSIONS:
+        raise ToolError(
+            f"{path!r} is not an image Mealie accepts ({', '.join(sorted(IMAGE_EXTENSIONS))})"
+        )
+    try:
+        if not image.is_file():
+            raise ToolError(f"{path!r} is not a regular file")
+        size = image.stat().st_size
+        if size > MAX_IMAGE_BYTES:
+            raise ToolError(
+                f"{path!r} is {size} bytes — images over {MAX_IMAGE_BYTES} are not uploaded"
+            )
+        content = image.read_bytes()
+    except OSError as exc:
+        raise ToolError(f"cannot read {path!r}: {exc}") from exc
+    return image, extension, content
+
+
 def _created_slug(response: Any, what: str) -> str:
     """Read the slug out of a create response, which is a bare string or a body.
 
@@ -499,23 +532,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         Mealie fetch it. This one reads the file where the server runs, so it
         only works when that is the same machine as the file.
         """
-        image = Path(path).expanduser()
-        extension = image.suffix.lower()
-        if extension not in IMAGE_EXTENSIONS:
-            raise ToolError(
-                f"{path!r} is not an image Mealie accepts ({', '.join(sorted(IMAGE_EXTENSIONS))})"
-            )
-        try:
-            if not image.is_file():
-                raise ToolError(f"{path!r} is not a regular file")
-            size = image.stat().st_size
-            if size > MAX_IMAGE_BYTES:
-                raise ToolError(
-                    f"{path!r} is {size} bytes — images over {MAX_IMAGE_BYTES} are not uploaded"
-                )
-            content = image.read_bytes()
-        except OSError as exc:
-            raise ToolError(f"cannot read {path!r}: {exc}") from exc
+        image, extension, content = _read_image(path)
 
         # Mealie's multipart handler requires the extension as its own field;
         # it names the stored file and is not derived from the upload.
@@ -623,6 +640,43 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         )
         slug = _created_slug(imported, "imported")
         return _flag_failed_scrape(await _fetch_recipe(client, slug))
+
+    @mcp.tool
+    async def duplicate_recipe(slug: str, name: str | None = None) -> dict:
+        """Duplicate a recipe. Pass name to name the copy; default copies the name too.
+
+        Returns the copy's slug and name — Mealie derives a fresh slug, so it
+        is never the one passed in. Read the copy with get_recipe.
+        """
+        client = get_client()
+        payload = {"name": name} if name else {}
+        duplicated = await client.request(
+            "POST",
+            f"/api/recipes/{slug}/duplicate",
+            json=payload,
+            not_found=f"recipe {slug!r} not found",
+        )
+        return shape.recipe_summary(duplicated or {})
+
+    @mcp.tool
+    async def import_recipe_from_images(paths: list[str], language: str | None = None) -> dict:
+        """Import a recipe by reading it off one or more photos.
+
+        Needs an AI provider configured on the Mealie instance; without one
+        this fails with "AI services are not enabled".
+
+        paths are image files on the machine running this server, same rules
+        as upload_recipe_image. Pass language to translate as it imports.
+        """
+        if not paths:
+            raise ToolError("paths is empty — nothing to import")
+        images = [_read_image(path) for path in paths]
+        files = [("images", (image.name, content)) for image, _, content in images]
+        data = {"translateLanguage": language} if language else None
+        client = get_client()
+        result = await client.request("POST", "/api/recipes/create/ai", files=files, data=data)
+        slug = _created_slug(result, "imported")
+        return {"slug": slug, "images": len(paths)}
 
 
 def _flag_failed_scrape(result: dict) -> dict:

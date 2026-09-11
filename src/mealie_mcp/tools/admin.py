@@ -19,6 +19,8 @@ GetClient = Callable[[], MealieClient]
 
 RESOURCES = tuple(TAXONOMY_PATHS)
 ACTIONS = ("list", "create", "update", "merge", "delete")
+#: The whole RegisteredParser enum in Mealie 3.25.1.
+PARSERS = ("nlp", "brute", "openai")
 #: Rows per list page. A food carries description, plural name, label, and
 #: aliases, so 200 of them is a 12k-token reply for a question that is almost
 #: always answered by the first few rows or by search.
@@ -133,14 +135,19 @@ async def _apply(
 
 def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
     @mcp.tool
-    async def parse_ingredients(lines: list[str]) -> dict:
+    async def parse_ingredients(lines: list[str], parser: str = "nlp") -> dict:
         """Parse free-text ingredient lines into quantity, unit, and food.
 
         Useful for inspecting how Mealie will read a list. create_recipe
         accepts plain text directly, so this is not required before writing.
+
+        parser: nlp (default), brute, or openai — openai needs an AI
+        provider configured on the Mealie instance.
         """
+        if parser not in PARSERS:
+            raise ToolError(f"parser must be one of {', '.join(PARSERS)} (got {parser!r})")
         results = await get_client().request(
-            "POST", "/api/parser/ingredients", json={"ingredients": lines}
+            "POST", "/api/parser/ingredients", json={"ingredients": lines, "parser": parser}
         )
         return {"items": [shape.parsed_ingredient(r) for r in results or []]}
 

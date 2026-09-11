@@ -18,7 +18,7 @@ from ..client import MealieClient
 
 GetClient = Callable[[], MealieClient]
 
-ENTRY_TYPES = ("breakfast", "lunch", "dinner", "side")
+ENTRY_TYPES = ("breakfast", "lunch", "dinner", "side", "snack", "drink", "dessert")
 MAX_RANDOM_DAYS = 14
 
 
@@ -94,7 +94,8 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         """Plan one meal on one day.
 
         Pass recipe_slug to link an existing recipe, or title for a free-text
-        entry like "leftovers". entry_type is breakfast, lunch, dinner, or side.
+        entry like "leftovers". entry_type is breakfast, lunch, dinner, side,
+        snack, drink, or dessert.
         """
         if not recipe_slug and not title:
             raise ToolError("pass either recipe_slug or title")
@@ -115,6 +116,50 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
 
         entry = await client.request("POST", "/api/households/mealplans", json=payload)
         return shape.meal_plan_entry(entry)
+
+    @mcp.tool
+    async def update_meal_plan_entry(
+        entry_id: str | int,
+        date: str | None = None,
+        entry_type: str | None = None,
+        recipe_slug: str | None = None,
+        title: str | None = None,
+        note: str | None = None,
+    ) -> dict:
+        """Change one planned meal by its entry_id (from get_meal_plan).
+
+        Every field is optional; anything left out keeps its current value.
+        """
+        changes = (date, entry_type, recipe_slug, title, note)
+        if all(change is None for change in changes):
+            raise ToolError("pass at least one field to change")
+
+        client = get_client()
+        # UpdatePlanEntry is a full replace, so the current row has to be read
+        # first and the caller's changes merged onto it.
+        entry = await client.request(
+            "GET",
+            f"/api/households/mealplans/{entry_id}",
+            not_found=f"meal plan entry {entry_id!r} not found",
+        )
+        if date is not None:
+            entry["date"] = _as_date(date, "date").isoformat()
+        if entry_type is not None:
+            entry["entryType"] = _check_entry_type(entry_type)
+        if recipe_slug is not None:
+            entry["recipeId"] = await client.recipe_id(recipe_slug)
+        if title is not None:
+            entry["title"] = title
+        if note is not None:
+            entry["text"] = note
+
+        updated = await client.request(
+            "PUT",
+            f"/api/households/mealplans/{entry_id}",
+            json=entry,
+            not_found=f"meal plan entry {entry_id!r} not found",
+        )
+        return shape.meal_plan_entry(updated)
 
     @mcp.tool
     async def delete_meal_plan_entry(entry_id: str | int) -> dict:

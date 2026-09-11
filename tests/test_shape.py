@@ -59,6 +59,14 @@ def test_rating_appears_only_when_mealie_supplies_one(recipe):
     assert shape.recipe_detail({**recipe, "rating": 4})["rating"] == 4
 
 
+def test_last_made_appears_only_when_mealie_supplies_one(recipe):
+    assert "last_made" not in shape.recipe_detail(recipe)
+    assert (
+        shape.recipe_detail({**recipe, "lastMade": "2026-01-01T00:00:00"})["last_made"]
+        == "2026-01-01T00:00:00"
+    )
+
+
 def test_summary_is_three_fields(recipe):
     assert set(shape.recipe_summary(recipe)) <= {"slug", "name", "description"}
 

@@ -14,7 +14,7 @@ from fastmcp.server.middleware import Middleware
 
 from .client import MealieClient
 from .config import Config, ConfigError
-from .tools import admin, cookbooks, library, mealplan, recipes
+from .tools import admin, cookbooks, feedback, library, mealplan, recipes, shopping
 
 log = logging.getLogger("mealie_mcp")
 
@@ -123,7 +123,12 @@ def build_server(config: Config) -> FastMCP:
     @asynccontextmanager
     async def lifespan(_server: FastMCP):
         global _client
-        _client = MealieClient(config.url, config.token, verify_ssl=config.verify_ssl)
+        _client = MealieClient(
+            config.url,
+            config.token,
+            verify_ssl=config.verify_ssl,
+            max_concurrency=config.max_concurrency,
+        )
         try:
             # main() already probed before the transport started; no need again.
             yield
@@ -133,7 +138,7 @@ def build_server(config: Config) -> FastMCP:
 
     mcp = FastMCP(name="mealie", lifespan=lifespan)
     mcp.add_middleware(SendResultsOnce())
-    for module in (recipes, mealplan, cookbooks, library, admin):
+    for module in (recipes, mealplan, cookbooks, shopping, feedback, library, admin):
         module.register(mcp, get_client, config.read_only)
     return mcp
 
@@ -168,7 +173,12 @@ def main() -> None:
 
 
 async def _verify(config: Config) -> None:
-    client = MealieClient(config.url, config.token, verify_ssl=config.verify_ssl)
+    client = MealieClient(
+        config.url,
+        config.token,
+        verify_ssl=config.verify_ssl,
+        max_concurrency=config.max_concurrency,
+    )
     try:
         version, username = await probe(client)
         log.info("connected to Mealie %s as %s", version, username)

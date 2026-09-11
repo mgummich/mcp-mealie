@@ -5,6 +5,20 @@
 **Supersedes:** [`2026-08-09-mealie-mcp-design.md`](2026-08-09-mealie-mcp-design.md)
 **Describes:** `v0.2.1` plus the unreleased write-path fixes on `main` (`0e4e02c`)
 
+> **Since this was written**, the server grew shopping lists, cooking history
+> (`last-made`, timeline, per-user ratings and favorites, comments),
+> `update_meal_plan_entry`, `duplicate_recipe`, `import_recipe_from_images`,
+> and parser selection on `parse_ingredients` — see the
+> [changelog](../../../CHANGELOG.md). Everything below still describes the
+> tools it names, but the coverage figures and the "deliberately not covered"
+> list predate those. Three things in that list stayed out on purpose:
+> **recipe assets**, which Mealie exposes only as an upload with no list or
+> delete endpoint and no agent workflow to serve; **favorites as their own
+> tools**, since Mealie stores a favorite as a field on the rating row and
+> `rate_recipe(favorite=...)` already writes it; and **populating a shopping
+> list from a meal plan**, which Mealie's UI assembles client-side from
+> several calls and which no single endpoint provides.
+
 This is a description of what the server does today, not a plan for what it
 should become. Where it differs from the original design document, this file
 is right and that one is history. Deliberate omissions are recorded here too —
@@ -288,15 +302,15 @@ A silent cap reads as "covered everything".
   and aliases, so 200 of them is a 12k-token reply to a question the first few
   rows answer.
 
-`parse_ingredients` currently always uses Mealie's default `nlp` parser; the
-API also offers `brute` and `openai`, which the tool does not expose.
+`parse_ingredients` defaults to Mealie's `nlp` parser and takes `brute` or
+`openai` instead; `openai` needs an AI provider configured on the instance.
 
 ### Read-only mode
 
-With `MEALIE_READ_ONLY=true`, **twelve** tools remain registered: the three
-recipe reads, the two meal plan reads, the two cookbook reads, the three
-library reports, `parse_ingredients`, and `manage_taxonomy` restricted to
-`action="list"`. Its docstring is swapped for a read-only variant rather than
+With `MEALIE_READ_ONLY=true`, **seventeen** tools remain registered: the three
+recipe reads, the two meal plan reads, the two cookbook reads, the two shopping
+list reads, the three cooking-history reads, the three library reports,
+`parse_ingredients`, and `manage_taxonomy` restricted to `action="list"`. Its docstring is swapped for a read-only variant rather than
 describing writes that will be refused.
 
 ## Write semantics
@@ -461,7 +475,6 @@ derivation.
 
 ## Still deferred
 
-Docker image, HTTP transport, PyPI publishing. Feature-wise, in the order they
-would be worth adding: shopping lists, recipe timeline and `last-made`,
-`duplicate`, and Mealie 3.x's LLM hooks (`parser="openai"`,
-`test-scrape-url?useOpenAI`, recipe-from-photo).
+Docker image, HTTP transport, PyPI publishing. The feature list that used to
+sit here — shopping lists, timeline and `last-made`, `duplicate`, and Mealie
+3.x's LLM hooks — has since been built; see the note at the top.
