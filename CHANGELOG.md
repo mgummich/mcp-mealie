@@ -31,9 +31,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MEALIE_MAX_CONCURRENCY` (default 4) caps how many requests reach Mealie at
   once. The cap is one semaphore per client, so concurrent tool calls share it
   instead of each getting their own fan-out budget.
+- `AGENTS.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, and
+  `docs/REPO_AUDIT.md`: AI operational context, one developer path, technical
+  truth with a source-of-truth map, and the audit that produced them.
+- `tests/test_docs.py` checks the facts the docs copy from the code — version
+  pins, the README tool table and its counts, config variable names and
+  defaults, the compatibility claim against the CI matrix, and internal links.
+  `tests/test_version.py` merged into it.
 
 ### Changed
 
+- Historical specs and the 2026-09-11 audit moved to `docs/archive/`, marked
+  non-authoritative. `.env.example` gained the `MEALIE_MAX_CONCURRENCY` the
+  README's config table already documented.
 - The integration suite runs against the newest stable Mealie (3.25.1) by
   default, and CI runs it against 2.8.0 as well — the oldest release this
   server supports. `MEALIE_TEST_VERSION` picks the release for a local run.

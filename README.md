@@ -8,8 +8,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-github.io-blue)](https://mgummich.github.io/mcp-mealie/)
 
-Forty-three curated tools over recipes, meal plans, shopping lists,
-cookbooks, and library cleanup, with responses trimmed hard enough that a
+Forty-three curated tools over recipes, meal plans, shopping lists, cooking
+history, cookbooks, and library cleanup, with responses trimmed hard enough
+that a
 recipe costs a few hundred tokens instead of a few thousand — and sent once,
 not in the two copies MCP would otherwise put on the wire.
 
@@ -37,7 +38,7 @@ No clone or virtualenv needed — `uvx` builds it straight from the tag.
 }
 ```
 
-Create the token in Mealie under **Settings → API Tokens**.
+Create the token in Mealie under **Profile → API Tokens**.
 
 > [!NOTE]
 > Not on PyPI yet, so installs come from git — `uvx mcp-mealie` on its own
@@ -210,36 +211,15 @@ two descriptions in every prompt and two places for the same guidance to drift.
 ## 🛠️ Development
 
 ```bash
-uv sync --extra dev             # creates .venv from the committed uv.lock
-uv run --extra dev pre-commit install   # run the lint gates on every commit
-uv run --extra dev pytest       # unit tests, fully offline
-uv run --extra dev ruff check .
-uv run --extra dev ruff format .
-uv run --extra dev mypy         # type-checks src/
+uv sync --extra dev          # creates .venv from the committed uv.lock
+uv run --extra dev pytest    # unit tests, fully offline
 ```
 
-`pre-commit run --all-files` runs the same gates CI does.
-
-Unit tests run entirely offline: `shape.py` against captured fixtures,
-`client.py` against mocked HTTP.
-
-```bash
-./scripts/integration.sh                            # newest stable Mealie
-MEALIE_TEST_VERSION=v2.8.0 ./scripts/integration.sh # or any other tag
-```
-
-Needs Docker; the throwaway instance listens on port 19925.
-
-The integration suite spins up a real Mealie in Docker, runs
-`tests/integration/` against it, and tears everything down.
-`scripts/smoke.py` hits a live instance of your choosing on demand.
-
-[`docs/superpowers/specs/2026-08-10-mealie-mcp-current-state.md`][spec]
-describes the server as built — every tool with its endpoint, the caches, the
-write semantics, and which 86% of Mealie's API this deliberately does not
-expose.
-
-[spec]: docs/superpowers/specs/2026-08-10-mealie-mcp-current-state.md
+[`CONTRIBUTING.md`](CONTRIBUTING.md) is the whole developer path — setup,
+gates, integration tests, adding a tool, which docs to update.
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the technical truth: module
+boundaries, the tool-to-Mealie flow, caches, write semantics, and what this
+deliberately does not expose.
 
 ## 🔗 Related
 
