@@ -110,6 +110,11 @@ lands on the wrong side.
   `delete_recipe(slug, confirm_slug)`, `delete_shopping_list(id, confirm_id)`.
   Single-row deletes — a shopping item, a comment, a meal plan entry — take it
   once.
+- Batches that Mealie takes in one request (`create-bulk` shopping items,
+  delete-many, several recipes onto a list) are all-or-nothing on Mealie's
+  side; slugs are resolved before the write, so a typo fails the call rather
+  than leaving half a list. Batches Mealie has no endpoint for (meal plan
+  `items`) loop one POST per entry, never retried.
 - Partial batch writes report per-item failures instead of stopping at the
   first one, and a failure after a create still hands back the created slug.
 - A timeout is reported as a timeout, not as unreachability — different cause,

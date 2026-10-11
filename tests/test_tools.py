@@ -293,6 +293,84 @@ async def test_search_by_food_filters_by_id():
 
 
 @respx.mock
+async def test_add_meal_plan_entry_items_plans_a_week_in_one_call():
+    respx.get(f"{BASE}/api/recipes/pad-thai").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "pad-thai"})
+    )
+    post = respx.post(f"{BASE}/api/households/mealplans").mock(
+        side_effect=[
+            httpx.Response(201, json={"id": 1, "date": "2026-10-12", "entryType": "dinner"}),
+            httpx.Response(201, json={"id": 2, "date": "2026-10-13", "entryType": "lunch"}),
+        ]
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "add_meal_plan_entry",
+            {
+                "items": [
+                    {"date": "2026-10-12", "recipe_slug": "pad-thai"},
+                    {"date": "2026-10-13", "entry_type": "lunch", "title": "leftovers"},
+                ]
+            },
+        )
+
+    bodies = [json.loads(call.request.content) for call in post.calls]
+    assert bodies == [
+        {"date": "2026-10-12", "entryType": "dinner", "recipeId": "r1"},
+        {"date": "2026-10-13", "entryType": "lunch", "title": "leftovers"},
+    ]
+    assert data(result)["count"] == 2
+    assert data(result)["failed"] == 0
+
+
+@respx.mock
+async def test_add_meal_plan_entry_items_reports_bad_entries_and_keeps_going():
+    respx.get(f"{BASE}/api/recipes/ghost").mock(return_value=httpx.Response(404))
+    post = respx.post(f"{BASE}/api/households/mealplans").mock(
+        return_value=httpx.Response(
+            201, json={"id": 3, "date": "2026-10-14", "entryType": "dinner", "title": "Tacos"}
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "add_meal_plan_entry",
+            {
+                "items": [
+                    {"date": "not-a-date", "title": "Soup"},
+                    {"date": "2026-10-13", "recipe_slug": "ghost"},
+                    {"date": "2026-10-14", "title": "Tacos", "colour": "red"},
+                    {"date": "2026-10-14", "title": "Tacos"},
+                ]
+            },
+        )
+
+    out = data(result)
+    assert post.call_count == 1
+    assert out["count"] == 1
+    assert [e["index"] for e in out["errors"]] == [0, 1, 2]
+    assert "ISO date" in out["errors"][0]["error"]
+    assert "not found" in out["errors"][1]["error"]
+    assert "unknown keys" in out["errors"][2]["error"]
+
+
+@pytest.mark.parametrize(
+    ("args", "match"),
+    [
+        ({"items": []}, "items is empty"),
+        ({"items": [{"date": "2026-10-12", "title": "x"}] * 63}, "cap is 62"),
+        ({"date": "2026-10-12", "items": [{"date": "2026-10-12", "title": "x"}]}, "inside each"),
+        ({"title": "Soup"}, "pass date"),
+    ],
+)
+async def test_add_meal_plan_entry_refuses_malformed_calls(args, match):
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match=match):
+            await client.call_tool("add_meal_plan_entry", args)
+
+
+@respx.mock
 async def test_random_meal_plan_reports_partial_success():
     # Day two failing must not hide that day one was written.
     entry = {"id": "e1", "date": "2026-09-01", "entryType": "dinner", "title": "Stew"}
@@ -1197,7 +1275,7 @@ async def test_add_recipe_to_shopping_list_resolves_the_slug():
     respx.get(f"{BASE}/api/recipes/roast").mock(
         return_value=httpx.Response(200, json={"id": "r1", "slug": "roast"})
     )
-    post = respx.post(f"{BASE}/api/households/shopping/lists/l1/recipe/r1").mock(
+    post = respx.post(f"{BASE}/api/households/shopping/lists/l1/recipe").mock(
         return_value=httpx.Response(200, json={"id": "l1", "name": "Groceries"})
     )
 
@@ -1206,7 +1284,118 @@ async def test_add_recipe_to_shopping_list_resolves_the_slug():
             "add_recipe_to_shopping_list", {"list_id": "l1", "recipe_slug": "roast", "quantity": 2}
         )
 
-    assert json.loads(post.calls.last.request.content) == {"recipeIncrementQuantity": 2}
+    # The list endpoint: /recipe/{id} is deprecated in Mealie.
+    assert json.loads(post.calls.last.request.content) == [
+        {"recipeId": "r1", "recipeIncrementQuantity": 2}
+    ]
+
+
+@respx.mock
+async def test_add_recipe_to_shopping_list_sends_many_recipes_in_one_request():
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast"})
+    )
+    respx.get(f"{BASE}/api/recipes/stew").mock(
+        return_value=httpx.Response(200, json={"id": "r2", "slug": "stew"})
+    )
+    post = respx.post(f"{BASE}/api/households/shopping/lists/l1/recipe").mock(
+        return_value=httpx.Response(
+            200, json={"id": "l1", "name": "Groceries", "listItems": [{}, {}, {}]}
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "add_recipe_to_shopping_list", {"list_id": "l1", "recipe_slug": ["roast", "stew"]}
+        )
+
+    assert post.call_count == 1
+    assert json.loads(post.calls.last.request.content) == [
+        {"recipeId": "r1", "recipeIncrementQuantity": 1},
+        {"recipeId": "r2", "recipeIncrementQuantity": 1},
+    ]
+    assert data(result)["count"] == 3
+
+
+@respx.mock
+async def test_add_recipe_to_shopping_list_writes_nothing_when_a_slug_is_unknown():
+    # A typo must fail the call, not leave a list with half the week on it.
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast"})
+    )
+    respx.get(f"{BASE}/api/recipes/ghost").mock(return_value=httpx.Response(404))
+    post = respx.post(f"{BASE}/api/households/shopping/lists/l1/recipe")
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="'ghost' not found"):
+            await client.call_tool(
+                "add_recipe_to_shopping_list",
+                {"list_id": "l1", "recipe_slug": ["roast", "ghost"]},
+            )
+
+    assert not post.called
+
+
+@respx.mock
+async def test_add_shopping_item_sends_a_list_in_one_bulk_request():
+    created = respx.post(f"{BASE}/api/households/shopping/items/create-bulk").mock(
+        return_value=httpx.Response(
+            201,
+            json={
+                "createdItems": [
+                    {"id": "i1", "display": "2 lemons", "checked": False},
+                    {"id": "i2", "display": "1 bunch cilantro", "checked": False},
+                ],
+                "updatedItems": [],
+                "deletedItems": [],
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "add_shopping_item", {"list_id": "l1", "item": ["2 lemons", "1 bunch cilantro"]}
+        )
+
+    assert json.loads(created.calls.last.request.content) == [
+        {"shoppingListId": "l1", "note": "2 lemons", "quantity": 0},
+        {"shoppingListId": "l1", "note": "1 bunch cilantro", "quantity": 0},
+    ]
+    assert data(result) == {
+        "items": [
+            {"item_id": "i1", "item": "2 lemons", "checked": False},
+            {"item_id": "i2", "item": "1 bunch cilantro", "checked": False},
+        ],
+        "count": 2,
+    }
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "match"),
+    [
+        ("add_shopping_item", {"list_id": "l1", "item": []}, "item is empty"),
+        ("delete_shopping_item", {"item_id": []}, "item_id is empty"),
+        ("add_recipe_to_shopping_list", {"list_id": "l1", "recipe_slug": []}, "is empty"),
+        ("add_shopping_item", {"list_id": "l1", "item": ["x"] * 101}, "cap is 100"),
+    ],
+)
+async def test_shopping_batches_refuse_empty_and_oversized_lists(tool, args, match):
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match=match):
+            await client.call_tool(tool, args)
+
+
+@respx.mock
+async def test_delete_shopping_item_deletes_a_list_in_one_request():
+    delete = respx.delete(f"{BASE}/api/households/shopping/items").mock(
+        return_value=httpx.Response(200, json={"message": "ok", "error": False})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("delete_shopping_item", {"item_id": ["i1", "i2"]})
+
+    assert delete.calls.last.request.url.params.get_list("ids") == ["i1", "i2"]
+    assert data(result) == {"deleted": ["i1", "i2"], "count": 2}
 
 
 @respx.mock

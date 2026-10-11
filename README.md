@@ -171,6 +171,11 @@ Once connected, ask in plain language — the agent picks the tools:
   files any number of recipes through Mealie's bulk endpoints in one call,
   creating names that do not exist yet. It only adds; removing still goes
   through `update_recipe` with `replace_tags`.
+- **A week's shopping and plan in a few calls.** `add_recipe_to_shopping_list`
+  takes a list of slugs and adds them in one request, so Mealie merges the
+  shared ingredients; `add_shopping_item` and `delete_shopping_item` take lists
+  too, so clearing a shopped list is one call. `add_meal_plan_entry(items=[...])`
+  plans the whole week, reporting any bad entry without stopping the rest.
 - **Batch taxonomy writes.** `manage_taxonomy(action="update", items=[...])`
   runs twenty-five renames in one call, and reports per-item failures instead
   of stopping at the first bad id.
