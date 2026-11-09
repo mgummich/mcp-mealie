@@ -117,6 +117,15 @@ lands on the wrong side.
   `items`) loop one POST per entry, never retried.
 - Partial batch writes report per-item failures instead of stopping at the
   first one, and a failure after a create still hands back the created slug.
+  That includes a create whose follow-up read fails: it is reported as created
+  with its slug, never as a failed create that invites a duplicate retry.
+- Multi-step writes report what already landed. `bulk_tag_recipes` names the
+  taxonomy it created and the assignments it applied before a later resolution
+  or write failed, so the caller does not repeat a completed mutation.
+- Unknown search alternatives are not operational failures: an unknown any-of
+  food is dropped with a note while known foods still filter, and an unknown
+  required food means no match without an unfiltered fallback search. A 401,
+  timeout, or 5xx during food lookup is still a tool error.
 - A timeout is reported as a timeout, not as unreachability — different cause,
   different fix for the person reading it.
 
@@ -125,13 +134,23 @@ lands on the wrong side.
 Slugs and IDs are interpolated into request paths, so `check_path()` rejects
 dot segments, backslashes, `?`/`#`, and their percent-encodings before any
 request is built (`UNSAFE_PATH` in `client.py`). Without it,
-`get_recipe("../users/self")` would reach an endpoint no tool exposes.
+`get_recipe("../users/self")` would reach an endpoint no tool exposes. A
+whole-path check cannot see a literal slash inside an identifier, because
+`/api/recipes/timeline/events` is a real route; every interpolated slug or id
+therefore goes through `check_segment()` first, which requires exactly one
+segment. Static separators in the routes themselves stay valid.
 
 `check_recipe_links` is the only code that fetches a URL chosen by stored data.
-It uses a separate httpx client carrying **no** Mealie credentials, follows
-redirects itself one hop at a time, and resolves each hop's address, refusing
-anything that is not globally routable. Loopback, private, and link-local
-destinations are never requested.
+It uses a separate httpx client carrying **no** Mealie credentials and ignoring
+environment proxies, follows redirects itself one hop at a time, and resolves
+each hop's address, refusing anything that is not globally routable. The
+transport replaces httpcore's network backend so the connection is dialed to
+the validated address string, not the hostname again: a DNS rebind between
+validation and connect cannot redirect it. Every hop and the HEAD-to-GET
+fallback use that same pinned client, and a resolution failure is reported as
+unverified rather than dialed speculatively. Loopback, private, and link-local
+destinations are never requested. TLS verification, SNI, and the Host header
+are unchanged because only the socket-level backend is replaced.
 
 ## Caching and concurrency
 

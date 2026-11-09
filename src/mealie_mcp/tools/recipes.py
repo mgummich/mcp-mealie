@@ -11,7 +11,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from .. import shape
-from ..client import MealieClient, MealieError, writable
+from ..client import MealieClient, MealieError, check_segment, writable
 
 GetClient = Callable[[], MealieClient]
 
@@ -187,7 +187,12 @@ def _created_slug(response: Any, what: str) -> str:
             f"Mealie {what} the recipe but returned no slug, so it cannot be read "
             "back — look for it in Mealie directly"
         )
-    return slug
+    try:
+        return check_segment(slug, "created recipe slug")
+    except ToolError as exc:
+        raise ToolError(
+            f"Mealie {what} the recipe but returned the unusable slug {slug!r}: {exc}"
+        ) from exc
 
 
 async def _fetch_recipe(
@@ -196,6 +201,7 @@ async def _fetch_recipe(
     full: bool = False,
     fields: list[str] | None = None,
 ) -> dict:
+    slug = check_segment(slug, "recipe slug")
     recipe = await client.request(
         "GET", f"/api/recipes/{slug}", not_found=f"recipe {slug!r} not found"
     )
@@ -209,6 +215,22 @@ async def _fetch_recipe(
         except MealieError:
             pass
     return shape.pick(recipe if full else shape.recipe_detail(recipe), fields)
+
+
+async def _read_created_recipe(client: MealieClient, slug: str) -> dict:
+    """Read a recipe a write just created, naming it if the read fails.
+
+    The POST already succeeded, so a failed GET must not look like a failed
+    create: a caller that retries would make a duplicate. The slug is the
+    handle for get_recipe, update_recipe, or delete_recipe.
+    """
+    try:
+        return await _fetch_recipe(client, slug)
+    except ToolError as exc:
+        raise ToolError(
+            f"recipe {slug!r} was created but could not be read back: {exc}. "
+            f"It exists in Mealie; use get_recipe({slug!r}) or delete it."
+        ) from exc
 
 
 async def _taxonomy_payload(
@@ -264,6 +286,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
                     "ingredients, instructions, or notes"
                 )
         params: dict[str, Any] = {"search": query, "page": page, "perPage": limit}
+        unknown_foods: list[str] = []
         if tags:
             params["tags"] = await client.taxonomy_slugs("tags", tags)
             params["requireAllTags"] = require_all
@@ -274,12 +297,25 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             params["tools"] = await client.taxonomy_slugs("tools", tools)
             params["requireAllTools"] = require_all
         if foods:
-            # Foods have no slug, so this filter needs ids — and a food Mealie
-            # has never heard of provably matches nothing.
-            try:
-                resolved, _ = await client.resolve_taxonomy("foods", foods, create_missing=False)
-            except ToolError as exc:
-                return {"items": [], "count": 0, "note": str(exc)}
+            # Foods have no slug, so this filter needs ids. Resolve the names
+            # Mealie knows without discarding them when an alternative is
+            # unknown; an operational failure (auth, timeout, 5xx) propagates.
+            resolved, unknown = await client.taxonomy_lookup("foods", foods)
+            unknown_foods = unknown
+            if require_all and unknown:
+                # One required food Mealie has never heard of means no recipe
+                # can match. Say so instead of searching with the other ids.
+                return {
+                    "items": [],
+                    "count": 0,
+                    "note": "no recipe can match unknown required food(s): " + ", ".join(unknown),
+                }
+            if not resolved:
+                return {
+                    "items": [],
+                    "count": 0,
+                    "note": "none of the requested foods exist in Mealie: " + ", ".join(unknown),
+                }
             params["foods"] = [f["id"] for f in resolved]
             params["requireAllFoods"] = require_all
         if max_total_minutes is not None:
@@ -299,7 +335,16 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             if fields
             else shape.recipe_summary
         )
-        return shape.paginated(result, shaper, page_number=page)
+        shaped = shape.paginated(result, shaper, page_number=page)
+        if unknown_foods:
+            note = (
+                "foods not found in Mealie: "
+                + ", ".join(unknown_foods)
+                + "; searched the known foods only"
+            )
+            prior = shaped.get("note")
+            shaped["note"] = f"{prior}; {note}" if prior else note
+        return shaped
 
     @mcp.tool
     async def get_recipe(slug: str, full: bool = False, fields: list[str] | None = None) -> dict:
@@ -429,7 +474,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
                 f"Fix with update_recipe({slug!r}, ...) or delete it."
             ) from exc
 
-        result = await _fetch_recipe(client, slug)
+        result = await _read_created_recipe(client, slug)
         return _with_created(result, created_tags, created_categories)
 
     @mcp.tool
@@ -468,6 +513,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         for anything you do next, above all set_recipe_image.
         """
         client = get_client()
+        slug = check_segment(slug, "recipe slug")
         current = await client.request(
             "GET", f"/api/recipes/{slug}", not_found=f"recipe {slug!r} not found"
         )
@@ -549,7 +595,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         """
         await get_client().request(
             "POST",
-            f"/api/recipes/{slug}/image",
+            f"/api/recipes/{check_segment(slug, 'recipe slug')}/image",
             json={"url": url, "includeTags": False},
             not_found=f"recipe {slug!r} not found",
         )
@@ -569,7 +615,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         # it names the stored file and is not derived from the upload.
         await get_client().request(
             "PUT",
-            f"/api/recipes/{slug}/image",
+            f"/api/recipes/{check_segment(slug, 'recipe slug')}/image",
             files={"image": (image.name, content)},
             data={"extension": extension},
             not_found=f"recipe {slug!r} not found",
@@ -596,22 +642,39 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
 
         client = get_client()
         created: dict[str, list[str]] = {}
-        applied: dict[str, list[str]] = {}
-        for resource, names, path, key in (
-            ("tags", tags, "tag", "tags"),
-            ("categories", categories, "categorize", "categories"),
-        ):
+        resolved: dict[str, list[dict]] = {}
+        # Resolve both inputs before the first assignment. Tag resolution can
+        # itself create names, so a later failure still has something to report.
+        for resource, names in (("tags", tags), ("categories", categories)):
             if not names:
                 continue
-            objects, created_names = await client.resolve_taxonomy(resource, names)
-            await client.request(
-                "POST",
-                f"/api/recipes/bulk-actions/{path}",
-                json={"recipes": slugs, key: objects},
-            )
-            applied[resource] = [o["name"] for o in objects]
+            try:
+                objects, created_names = await client.resolve_taxonomy(resource, names)
+            except ToolError as exc:
+                raise _bulk_tag_error(exc, applied={}, created=created, recipes=len(slugs)) from exc
+            resolved[resource] = objects
             if created_names:
                 created[resource] = created_names
+
+        applied: dict[str, list[str]] = {}
+        for resource, path, key in (
+            ("tags", "tag", "tags"),
+            ("categories", "categorize", "categories"),
+        ):
+            chosen = resolved.get(resource)
+            if chosen is None:
+                continue
+            try:
+                await client.request(
+                    "POST",
+                    f"/api/recipes/bulk-actions/{path}",
+                    json={"recipes": slugs, key: chosen},
+                )
+            except ToolError as exc:
+                raise _bulk_tag_error(
+                    exc, applied=applied, created=created, recipes=len(slugs)
+                ) from exc
+            applied[resource] = [o["name"] for o in chosen]
 
         return {"recipes": len(slugs), "applied": applied, "created": created}
 
@@ -627,6 +690,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             raise ToolError(
                 f"confirm_slug {confirm_slug!r} does not match slug {slug!r} — nothing deleted"
             )
+        slug = check_segment(slug, "recipe slug")
         client = get_client()
         # Resolve before deleting: the fallback needs the UUID, and after a
         # half-failed delete the slug may no longer read back.
@@ -670,7 +734,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             },
         )
         slug = _created_slug(imported, "imported")
-        return _flag_failed_scrape(await _fetch_recipe(client, slug))
+        return _flag_failed_scrape(await _read_created_recipe(client, slug))
 
     @mcp.tool
     async def duplicate_recipe(slug: str, name: str | None = None) -> dict:
@@ -680,6 +744,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         is never the one passed in. Read the copy with get_recipe.
         """
         client = get_client()
+        slug = check_segment(slug, "recipe slug")
         payload = {"name": name} if name else {}
         duplicated = await client.request(
             "POST",
@@ -708,6 +773,32 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         result = await client.request("POST", "/api/recipes/create/ai", files=files, data=data)
         slug = _created_slug(result, "imported")
         return {"slug": slug, "images": len(paths)}
+
+
+def _bulk_tag_error(
+    exc: ToolError,
+    *,
+    applied: dict[str, list[str]],
+    created: dict[str, list[str]],
+    recipes: int,
+) -> ToolError:
+    """Word a bulk-tag failure so completed mutations are not hidden.
+
+    The tool issues up to two independent bulk writes, and resolving a name
+    can create it. If a later step fails, the caller must know what already
+    landed or it will repeat it.
+    """
+    done: list[str] = []
+    for resource, names in applied.items():
+        done.append(f"{resource} {', '.join(names)} applied to {recipes} recipes")
+    for resource, names in created.items():
+        done.append(f"new {resource} created: {', '.join(names)}")
+    if not done:
+        return ToolError(str(exc))
+    return ToolError(
+        "partially completed: " + "; ".join(done) + f" — then the call failed: {exc}. "
+        "Those changes are already in Mealie; do not repeat them."
+    )
 
 
 def _flag_failed_scrape(result: dict) -> dict:

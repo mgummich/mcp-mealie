@@ -9,7 +9,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from .. import shape
-from ..client import MealieClient, MealieError
+from ..client import MealieClient, MealieError, check_segment
 
 GetClient = Callable[[], MealieClient]
 
@@ -64,6 +64,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
     @mcp.tool
     async def get_recipe_comments(slug: str) -> dict:
         """List the comments on a recipe."""
+        slug = check_segment(slug, "recipe slug")
         result = await get_client().request(
             "GET", f"/api/recipes/{slug}/comments", not_found=f"recipe {slug!r} not found"
         )
@@ -77,6 +78,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
     async def mark_recipe_made(slug: str, when: str | None = None) -> dict:
         """Record that a recipe was cooked. when is an ISO date/datetime; default is now."""
         timestamp = _timestamp(when)
+        slug = check_segment(slug, "recipe slug")
         await get_client().request(
             "PATCH",
             f"/api/recipes/{slug}/last-made",
@@ -96,7 +98,8 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             raise ToolError(f"rating must be between 0 and 5 (got {rating!r})")
 
         client = get_client()
-        user_id = await client.user_id()
+        slug = check_segment(slug, "recipe slug")
+        user_id = check_segment(await client.user_id(), "user id")
         payload: dict = {}
         result: dict = {"slug": slug}
         if rating is not None:
@@ -127,6 +130,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
     @mcp.tool
     async def delete_recipe_comment(comment_id: str) -> dict:
         """Delete a comment by its comment_id (from get_recipe_comments)."""
+        comment_id = check_segment(comment_id, "comment id")
         await get_client().request(
             "DELETE",
             f"/api/comments/{comment_id}",

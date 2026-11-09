@@ -245,6 +245,21 @@ async def test_shopping_list_roundtrip(client):
         fetched = await client.call_tool("get_shopping_list", {"list_id": list_id})
         assert data(fetched)["count"] == data(filled)["count"]
 
+        # A recipe-derived item keeps its food and unit. Replacing its text must
+        # clear them, or Mealie renders the old food in front of the new text.
+        recipe_item_id = next(
+            item["item_id"] for item in data(fetched)["items"] if item["item_id"] != item_id
+        )
+        replaced = await client.call_tool(
+            "update_shopping_item", {"item_id": recipe_item_id, "item": "2 lemons"}
+        )
+        assert data(replaced)["item"] == "2 lemons"
+        reread = data(await client.call_tool("get_shopping_list", {"list_id": list_id}))
+        assert (
+            next(item["item"] for item in reread["items"] if item["item_id"] == recipe_item_id)
+            == "2 lemons"
+        )
+
         deleted = await client.call_tool("delete_shopping_item", {"item_id": item_id})
         assert data(deleted) == {"deleted": item_id}
     finally:

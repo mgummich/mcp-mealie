@@ -13,7 +13,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from .. import shape
-from ..client import MERGE_KEYS, TAXONOMY_PATHS, MealieClient, MealieError
+from ..client import MERGE_KEYS, TAXONOMY_PATHS, MealieClient, MealieError, check_segment
 
 GetClient = Callable[[], MealieClient]
 
@@ -104,6 +104,7 @@ async def _apply(
     if action == "update":
         if not item_id:
             raise ToolError("update requires an item_id (get it from action='list')")
+        item_id = check_segment(item_id, f"{resource} item id")
         if name is None and not data:
             raise ToolError("update requires a name and/or data")
         missing = f"{resource} item {item_id!r} not found"
@@ -118,6 +119,7 @@ async def _apply(
 
     if not item_id:
         raise ToolError("delete requires an item_id (get it from action='list')")
+    item_id = check_segment(item_id, f"{resource} item id")
     try:
         await client.request(
             "DELETE", f"{path}/{item_id}", not_found=f"{resource} item {item_id!r} not found"

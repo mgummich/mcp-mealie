@@ -99,8 +99,10 @@ Breaking one of these is a bug even if the tests are green.
 4. **No output schemas.** A declared schema obliges MCP to send
    `structuredContent`, which doubles every response on the wire; the
    `SendResultsOnce` middleware strips both. Do not reintroduce them.
-5. **Interpolated slugs and IDs go through `check_path()`.** Without it a slug
-   like `../users/self` reaches an endpoint no tool exposes.
+5. **Interpolated slugs and IDs go through `check_segment()` before the route
+   is built** (and `check_path()` still screens the assembled path). Without
+   it a slug like `../users/self` or `timeline/events` reaches an endpoint no
+   tool exposes.
 6. **Irreversible whole-object deletes take the identifier twice**
    (`delete_recipe`, `delete_shopping_list`). Single-row deletes
    (`delete_shopping_item`, `delete_recipe_comment`, …) do not.

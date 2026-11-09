@@ -71,6 +71,32 @@ MAX_CACHED_DETAILS = MAX_LIBRARY_RECIPES
 #: authenticated request to an endpoint the tool never meant to reach.
 UNSAFE_PATH = re.compile(r"[?#\\]|(?:^|/)\.{1,2}(?:/|$)|%2e|%2f|%5c", re.IGNORECASE)
 
+#: A single interpolated identifier. A literal slash is the important one
+#: here: "/api/recipes/timeline/events" is a real route, so a slug of
+#: "timeline/events" must be rejected before the path is assembled rather than
+#: validated as a whole path afterwards.
+UNSAFE_SEGMENT = re.compile(r"[/\\?#]|%2e|%2f|%5c|%3f|%23", re.IGNORECASE)
+
+
+def check_segment(value: object, what: str = "identifier") -> str:
+    """Reject an interpolated slug or id that is not exactly one path segment.
+
+    Args:
+        value: The slug, id, or other value about to be interpolated.
+        what: How to describe it in the error, e.g. "recipe slug".
+
+    Returns:
+        The value as a string, unchanged.
+
+    Raises:
+        ToolError: If the value is empty, a dot segment, or carries a path or
+            query separator.
+    """
+    text = str(value)
+    if not text or text in (".", "..") or UNSAFE_SEGMENT.search(text):
+        raise ToolError(f"refusing to use {text!r} as {what} — it must be a single path segment")
+    return text
+
 
 def check_path(path: str) -> None:
     """Reject a request path whose interpolated values escape their segment.
@@ -85,6 +111,19 @@ def check_path(path: str) -> None:
         raise ToolError(
             f"refusing to request {path!r} — slugs and ids must be a single path segment"
         )
+
+
+class UnknownTaxonomyItem(ToolError):
+    """A taxonomy name Mealie does not have, when creation was refused.
+
+    Separate from operational failures (401, timeout, 5xx) so a search can
+    treat an unknown name as "no match" without swallowing a broken server.
+    """
+
+    def __init__(self, resource: str, name: str) -> None:
+        self.resource = resource
+        self.name = name
+        super().__init__(f"{resource[:-1]} {name!r} does not exist")
 
 
 class MealieError(ToolError):
@@ -304,6 +343,7 @@ class MealieClient:
         Raises:
             ToolError: If no recipe has that slug.
         """
+        slug = check_segment(slug, "recipe slug")
         self._expire_caches()
         if slug not in self._slug_ids:
             recipe = await self.request(
@@ -361,11 +401,46 @@ class MealieClient:
             key = name.casefold()
             if key not in known:
                 if not create_missing:
-                    raise ToolError(f"{resource[:-1]} {name!r} does not exist")
+                    raise UnknownTaxonomyItem(resource, name)
                 known[key] = await self.request("POST", path, json={"name": name})
                 created.append(name)
             resolved.append(writable(known[key]))
         return resolved, created
+
+    async def taxonomy_lookup(
+        self, resource: str, names: list[str]
+    ) -> tuple[list[dict], list[str]]:
+        """Resolve the names Mealie knows, returning unknown names separately.
+
+        Search filters use this rather than ``resolve_taxonomy(create_missing=
+        False)``: one unknown alternative in an any-of search must not discard
+        the matches Mealie does know, and it must not turn an operational
+        failure into an empty result.
+
+        Args:
+            resource: Key into TAXONOMY_PATHS ("tags", "categories", ...).
+            names: Plain names, matched case-insensitively.
+
+        Returns:
+            A tuple of (resolved objects, names Mealie does not have). Objects
+            are trimmed the way a write payload wants them.
+
+        Raises:
+            ToolError: If the taxonomy snapshot cannot be read.
+        """
+        if not names:
+            return [], []
+        await self._load_taxonomy(resource)
+        known = self._taxonomy[resource]
+        resolved: list[dict] = []
+        missing: list[str] = []
+        for name in names:
+            item = known.get(name.casefold())
+            if item is None:
+                missing.append(name)
+            else:
+                resolved.append(writable(item))
+        return resolved, missing
 
     async def taxonomy_names(self, resource: str, names: list[str]) -> list[str]:
         """Map names to their canonical casing as stored in Mealie.
@@ -500,7 +575,7 @@ class MealieClient:
             read.
         """
         self._expire_caches()
-        unique = list(dict.fromkeys(slugs))
+        unique = list(dict.fromkeys(check_segment(slug, "recipe slug") for slug in slugs))
         # ponytail: drop the whole cache rather than evict one by one; the
         # caller is a sweep, and a half-populated cache re-fetches anyway.
         if len(self._details) + len(unique) > MAX_CACHED_DETAILS:

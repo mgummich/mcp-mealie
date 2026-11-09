@@ -14,7 +14,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from .. import shape
-from ..client import MealieClient
+from ..client import MealieClient, check_segment
 
 GetClient = Callable[[], MealieClient]
 
@@ -246,6 +246,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             raise ToolError("pass at least one field to change")
 
         client = get_client()
+        entry_id = check_segment(entry_id, "meal plan entry id")
         # UpdatePlanEntry is a full replace, so the current row has to be read
         # first and the caller's changes merged onto it.
         entry = await client.request(
@@ -277,6 +278,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
     @mcp.tool
     async def delete_meal_plan_entry(entry_id: str | int) -> dict:
         """Remove one planned meal by its entry_id (from get_meal_plan)."""
+        check_segment(entry_id, "meal plan entry id")
         await get_client().request(
             "DELETE",
             f"/api/households/mealplans/{entry_id}",

@@ -9,7 +9,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from .. import shape
-from ..client import MealieClient
+from ..client import MealieClient, check_segment
 
 GetClient = Callable[[], MealieClient]
 
@@ -175,6 +175,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         it.
         """
         client = get_client()
+        cookbook_id = check_segment(cookbook_id, "cookbook id")
         missing = f"cookbook {cookbook_id!r} not found"
         # Mealie's PUT replaces the whole row, so patch onto the current one.
         current = await client.request(
@@ -200,6 +201,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
     @mcp.tool
     async def delete_cookbook(cookbook_id: str) -> dict:
         """Delete a cookbook. The recipes it matched are not touched."""
+        cookbook_id = check_segment(cookbook_id, "cookbook id")
         await get_client().request(
             "DELETE",
             f"/api/households/cookbooks/{cookbook_id}",

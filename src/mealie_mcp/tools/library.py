@@ -11,11 +11,13 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import re
+import socket
 from collections import Counter, defaultdict
 from collections.abc import Callable
 from functools import partial
 from typing import Any
 
+import httpcore
 import httpx
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -251,7 +253,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         if with_source:
             # follow_redirects stays off: _probe walks the chain itself so a
             # redirect cannot land on an address the first hop was checked for.
-            async with httpx.AsyncClient(timeout=LINK_TIMEOUT_SECONDS) as http:
+            async with _link_client() as http:
                 probes = await map_concurrent(
                     [partial(_probe, http, r["orgURL"]) for r in with_source]
                 )
@@ -283,12 +285,127 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         return result
 
 
+async def _lookup(host: str) -> list[tuple]:
+    """Resolve a host once; kept separate so tests can supply addresses."""
+    return await asyncio.get_running_loop().getaddrinfo(host, None, type=socket.SOCK_STREAM)
+
+
+async def _resolve_global_addresses(host: str) -> list[str]:
+    """Resolve a host to globally routable addresses, or fail closed.
+
+    The list returned here is the only resolution used: the network backend
+    connects to one of these strings, never to the hostname again. A DNS rebind
+    between validation and connection therefore cannot redirect the request.
+
+    Args:
+        host: Hostname or address literal from the URL.
+
+    Returns:
+        The validated address strings, in resolution order.
+
+    Raises:
+        httpcore.ConnectError: If the host does not resolve, resolves to
+            nothing, or resolves to any non-global address.
+    """
+    try:
+        infos = await _lookup(host)
+    except OSError as exc:
+        raise httpcore.ConnectError(f"could not resolve {host!r}") from exc
+
+    addresses: list[str] = []
+    for info in infos:
+        try:
+            address = ipaddress.ip_address(info[4][0])
+        except (IndexError, ValueError) as exc:
+            raise httpcore.ConnectError(f"could not validate {host!r}") from exc
+        if not address.is_global:
+            raise httpcore.ConnectError(f"refusing {host!r}: {address} is not globally routable")
+        addresses.append(str(address))
+    if not addresses:
+        raise httpcore.ConnectError(f"could not resolve {host!r}")
+    return addresses
+
+
+class _PinnedBackend(httpcore.AsyncNetworkBackend):
+    """Connect only to addresses this process has already validated.
+
+    httpcore asks its network backend to connect by hostname, and its default
+    backend resolves that name again. That second resolution is the DNS
+    rebinding window: a name can answer publicly during a pre-flight check and
+    privately when the socket is opened. This backend closes the window by
+    resolving once, validating every answer, and handing the inner backend an
+    address rather than the name.
+    """
+
+    def __init__(self, inner: httpcore.AsyncNetworkBackend) -> None:
+        self._inner = inner
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Any = None,
+    ) -> httpcore.AsyncNetworkStream:
+        addresses = await _resolve_global_addresses(host)
+        last_error: Exception | None = None
+        for address in addresses:
+            try:
+                return await self._inner.connect_tcp(
+                    address,
+                    port,
+                    timeout=timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+            except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
+                last_error = exc
+        raise last_error or httpcore.ConnectError(f"could not connect to {host!r}")
+
+    async def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,
+        socket_options: Any = None,
+    ) -> httpcore.AsyncNetworkStream:
+        raise httpcore.ConnectError("unix sockets are not permitted for source links")
+
+    async def sleep(self, seconds: float) -> None:
+        await self._inner.sleep(seconds)
+
+
+class _PinnedTransport(httpx.AsyncHTTPTransport):
+    """httpx's normal transport with DNS pinned at the socket layer.
+
+    Only the network backend changes, so TLS verification, SNI, the Host
+    header, redirect handling, and every other httpx behavior stay the same.
+    Environment proxies are ignored: a proxy would make the checked address
+    describe the proxy rather than the destination.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(verify=True, trust_env=False)
+        self._pool._network_backend = _PinnedBackend(self._pool._network_backend)
+
+
+def _link_client() -> httpx.AsyncClient:
+    """Build the credential-free, proxy-free, address-pinning probe client."""
+    return httpx.AsyncClient(
+        timeout=LINK_TIMEOUT_SECONDS,
+        follow_redirects=False,
+        trust_env=False,
+        transport=_PinnedTransport(),
+    )
+
+
 async def _probe(http: httpx.AsyncClient, url: str) -> dict:
     """HEAD one URL, falling back to a streamed GET for hosts that refuse it.
 
     Redirects are followed here rather than by the client, because the URL
     comes from a recipe someone else may have written and every hop has to be
-    checked before it is requested.
+    checked before it is requested. The client itself pins each connection to
+    the address that check resolved.
     """
     try:
         for _ in range(MAX_REDIRECTS + 1):
@@ -320,17 +437,14 @@ async def _routable(url: str) -> bool:
 
     Returns:
         True if every address the host resolves to is globally routable.
+        False when the host does not resolve: an unresolvable destination is
+        reported as unverified rather than probed speculatively.
     """
     parsed = httpx.URL(url)
     if parsed.scheme not in ("http", "https") or not parsed.host:
         return False
     try:
-        # ponytail: resolved once, then httpx resolves again when it connects,
-        # so a DNS rebind between the two still gets through. Pin the address
-        # at the transport if that threat matters here.
-        infos = await asyncio.get_running_loop().getaddrinfo(parsed.host, None)
-    except OSError:
-        # Unresolvable is a dead link, not a blocked one; let the request fail
-        # the way it would have.
-        return True
-    return all(ipaddress.ip_address(info[4][0]).is_global for info in infos)
+        await _resolve_global_addresses(parsed.host)
+    except httpcore.ConnectError:
+        return False
+    return True

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import socket
 
+import httpcore
 import httpx
 import pytest
 import respx
@@ -13,6 +15,7 @@ from fastmcp.exceptions import ToolError
 
 from mealie_mcp.config import Config
 from mealie_mcp.server import build_server, probe
+from mealie_mcp.tools import library
 from mealie_mcp.tools.recipes import _instruction_payload, _normalize_ingredient
 
 BASE = "https://mealie.test"
@@ -268,6 +271,7 @@ async def test_delete_recipe_does_not_fall_back_on_a_404():
 @respx.mock
 async def test_search_by_unknown_food_returns_empty_not_error():
     # A food Mealie has never heard of provably matches no recipes.
+    recipes = respx.get(f"{BASE}/api/recipes")
     respx.get(f"{BASE}/api/foods").mock(return_value=httpx.Response(200, json={"items": []}))
 
     async with Client(build_server(config())) as client:
@@ -275,6 +279,84 @@ async def test_search_by_unknown_food_returns_empty_not_error():
 
     assert data(result)["count"] == 0
     assert "Unicorn Meat" in data(result)["note"]
+    # No known food means no id to filter by; an unfiltered sweep would be a
+    # false answer rather than an empty one.
+    assert not recipes.called
+
+
+@respx.mock
+async def test_search_any_food_keeps_known_matches_when_some_are_unknown():
+    respx.get(f"{BASE}/api/foods").mock(
+        return_value=httpx.Response(200, json={"items": [{"id": "f1", "name": "Onion"}]})
+    )
+    recipes = respx.get(f"{BASE}/api/recipes").mock(
+        return_value=httpx.Response(
+            200, json={"items": [{"slug": "soup", "name": "Soup"}], "total": 1}
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "search_recipes", {"foods": ["Onion", "UnknownFood"], "require_all": False}
+        )
+
+    assert data(result)["count"] == 1
+    assert recipes.calls.last.request.url.params["foods"] == "f1"
+    assert "UnknownFood" in data(result)["note"]
+
+
+@respx.mock
+async def test_search_all_foods_with_an_unknown_food_returns_empty_without_searching():
+    # require_all means the unknown food is required; no recipe can have it.
+    recipes = respx.get(f"{BASE}/api/recipes")
+    respx.get(f"{BASE}/api/foods").mock(
+        return_value=httpx.Response(200, json={"items": [{"id": "f1", "name": "Onion"}]})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "search_recipes", {"foods": ["Onion", "UnknownFood"], "require_all": True}
+        )
+
+    assert data(result)["count"] == 0
+    assert "UnknownFood" in data(result)["note"]
+    assert not recipes.called
+
+
+@respx.mock
+async def test_search_propagates_an_authentication_failure_instead_of_returning_empty():
+    recipes = respx.get(f"{BASE}/api/recipes")
+    respx.get(f"{BASE}/api/foods").mock(return_value=httpx.Response(401))
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="MEALIE_API_TOKEN"):
+            await client.call_tool("search_recipes", {"foods": ["Onion"]})
+
+    assert not recipes.called
+
+
+@respx.mock
+async def test_search_propagates_a_server_failure_instead_of_returning_empty():
+    recipes = respx.get(f"{BASE}/api/recipes")
+    respx.get(f"{BASE}/api/foods").mock(return_value=httpx.Response(500))
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match=r"returned 500|unhealthy"):
+            await client.call_tool("search_recipes", {"foods": ["Onion"]})
+
+    assert not recipes.called
+
+
+@respx.mock
+async def test_search_propagates_a_transport_failure_instead_of_returning_empty():
+    recipes = respx.get(f"{BASE}/api/recipes")
+    respx.get(f"{BASE}/api/foods").mock(side_effect=httpx.ConnectError("refused"))
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="unreachable"):
+            await client.call_tool("search_recipes", {"foods": ["Onion"]})
+
+    assert not recipes.called
 
 
 @respx.mock
@@ -740,6 +822,66 @@ async def test_bulk_tag_refuses_a_call_that_would_do_nothing():
 
 
 @respx.mock
+async def test_bulk_tag_reports_created_names_when_a_later_resolution_fails():
+    # Resolving tags already created one in Mealie before categories failed.
+    respx.get(f"{BASE}/api/organizers/tags").mock(
+        return_value=httpx.Response(200, json={"items": []})
+    )
+    created = respx.post(f"{BASE}/api/organizers/tags").mock(
+        return_value=httpx.Response(201, json={"id": "t2", "name": "Quick", "slug": "quick"})
+    )
+    respx.get(f"{BASE}/api/organizers/categories").mock(return_value=httpx.Response(500))
+    assignment = respx.post(f"{BASE}/api/recipes/bulk-actions/tag")
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError) as caught:
+            await client.call_tool(
+                "bulk_tag_recipes",
+                {"slugs": ["roast"], "tags": ["Quick"], "categories": ["Dessert"]},
+            )
+
+    message = str(caught.value)
+    assert created.call_count == 1
+    assert "Quick" in message
+    assert "already in Mealie" in message
+    assert not assignment.called
+
+
+@respx.mock
+async def test_bulk_tag_reports_an_applied_tag_when_the_category_write_fails():
+    respx.get(f"{BASE}/api/organizers/tags").mock(
+        return_value=httpx.Response(
+            200, json={"items": [{"id": "t1", "name": "Vegan", "slug": "vegan"}]}
+        )
+    )
+    respx.get(f"{BASE}/api/organizers/categories").mock(
+        return_value=httpx.Response(
+            200, json={"items": [{"id": "c1", "name": "Dessert", "slug": "dessert"}]}
+        )
+    )
+    tagged = respx.post(f"{BASE}/api/recipes/bulk-actions/tag").mock(
+        return_value=httpx.Response(200, json=None)
+    )
+    categorized = respx.post(f"{BASE}/api/recipes/bulk-actions/categorize").mock(
+        return_value=httpx.Response(500)
+    )
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError) as caught:
+            await client.call_tool(
+                "bulk_tag_recipes",
+                {"slugs": ["roast", "stew"], "tags": ["Vegan"], "categories": ["Dessert"]},
+            )
+
+    message = str(caught.value)
+    assert "Vegan" in message
+    assert "applied to 2 recipes" in message
+    assert "already in Mealie" in message
+    assert tagged.call_count == 1
+    assert categorized.call_count == 1
+
+
+@respx.mock
 async def test_upload_recipe_image_sends_the_extension_field(tmp_path):
     photo = tmp_path / "roast.JPG"
     photo.write_bytes(b"\xff\xd8\xff")
@@ -912,7 +1054,11 @@ async def test_find_duplicate_recipes_ignores_punctuation_and_case():
 
 
 @respx.mock
-async def test_check_recipe_links_reports_dead_sources_and_blank_images():
+async def test_check_recipe_links_reports_dead_sources_and_blank_images(monkeypatch):
+    async def public_addresses(host):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+
+    monkeypatch.setattr(library, "_lookup", public_addresses)
     respx.get(f"{BASE}/api/recipes").mock(
         return_value=httpx.Response(
             200,
@@ -1047,6 +1193,41 @@ async def test_create_recipe_rejects_a_short_parser_response():
                 "create_recipe",
                 {"name": "Stew", "ingredients": ["2 cups flour", "1 tsp salt"]},
             )
+
+
+@respx.mock
+async def test_create_recipe_reports_the_slug_when_the_read_back_fails():
+    # The POST succeeded. A generic error here invites a retry, which would
+    # create the recipe a second time.
+    created = respx.post(f"{BASE}/api/recipes").mock(return_value=httpx.Response(201, json="stew"))
+    respx.get(f"{BASE}/api/recipes/stew").mock(return_value=httpx.Response(500))
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError) as caught:
+            await client.call_tool("create_recipe", {"name": "Stew"})
+
+    message = str(caught.value)
+    assert "'stew'" in message
+    assert "was created" in message
+    assert "get_recipe" in message
+    assert created.call_count == 1
+
+
+@respx.mock
+async def test_import_recipe_reports_the_slug_when_the_read_back_fails():
+    created = respx.post(f"{BASE}/api/recipes/create/url").mock(
+        return_value=httpx.Response(201, json="tomatoes")
+    )
+    respx.get(f"{BASE}/api/recipes/tomatoes").mock(return_value=httpx.Response(500))
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError) as caught:
+            await client.call_tool("import_recipe_from_url", {"url": "https://js.test/r"})
+
+    message = str(caught.value)
+    assert "'tomatoes'" in message
+    assert "was created" in message
+    assert created.call_count == 1
 
 
 @respx.mock
@@ -1253,6 +1434,81 @@ async def test_update_shopping_item_rewrites_text_with_quantity_zero():
     assert body["note"] == "3 limes"
     assert body["quantity"] == 0
     assert data(result)["item"] == "3 limes"
+
+
+@respx.mock
+async def test_update_shopping_item_replacing_recipe_text_clears_food_and_unit():
+    # A recipe-derived item keeps structured food and unit fields. Leaving them
+    # in place makes Mealie render "Onion 2 lemons" for the replacement text.
+    respx.get(f"{BASE}/api/households/shopping/items/i1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "i1",
+                "shoppingListId": "l1",
+                "note": "2 cup Onion",
+                "quantity": 2,
+                "food": {"id": "f1", "name": "Onion"},
+                "foodId": "f1",
+                "unit": {"id": "u1", "name": "cup"},
+                "unitId": "u1",
+                "recipeReferences": [{"recipeId": "r1"}],
+                "checked": False,
+            },
+        )
+    )
+    put = respx.put(f"{BASE}/api/households/shopping/items/i1").mock(
+        return_value=httpx.Response(
+            200, json={"updatedItems": [{"id": "i1", "display": "2 lemons", "checked": False}]}
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "update_shopping_item", {"item_id": "i1", "item": "2 lemons"}
+        )
+
+    body = json.loads(put.calls.last.request.content)
+    assert body["note"] == "2 lemons"
+    assert body["quantity"] == 0
+    for key in ("food", "foodId", "unit", "unitId"):
+        assert key not in body
+    assert data(result)["item"] == "2 lemons"
+
+
+@respx.mock
+async def test_update_shopping_item_checking_keeps_the_recipe_food_and_unit():
+    # checked is not a text replacement; the structured ingredient must stay.
+    respx.get(f"{BASE}/api/households/shopping/items/i1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "i1",
+                "shoppingListId": "l1",
+                "note": "2 cup Onion",
+                "quantity": 2,
+                "food": {"id": "f1", "name": "Onion"},
+                "foodId": "f1",
+                "unit": {"id": "u1", "name": "cup"},
+                "unitId": "u1",
+                "checked": False,
+            },
+        )
+    )
+    put = respx.put(f"{BASE}/api/households/shopping/items/i1").mock(
+        return_value=httpx.Response(
+            200, json={"updatedItems": [{"id": "i1", "display": "2 cup Onion", "checked": True}]}
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        await client.call_tool("update_shopping_item", {"item_id": "i1", "checked": True})
+
+    body = json.loads(put.calls.last.request.content)
+    assert body["foodId"] == "f1"
+    assert body["unitId"] == "u1"
+    assert body["note"] == "2 cup Onion"
+    assert body["checked"] is True
 
 
 async def test_update_shopping_item_refuses_a_call_that_changes_nothing():
@@ -1575,6 +1831,49 @@ async def test_get_recipe_cannot_escape_the_recipe_endpoint():
 
 
 @respx.mock
+@pytest.mark.parametrize("read_only", [False, True])
+async def test_a_literal_slash_in_a_slug_cannot_reach_another_route(read_only):
+    timeline = respx.get(f"{BASE}/api/recipes/timeline/events").mock(
+        return_value=httpx.Response(200, json={"items": [], "total": 0})
+    )
+
+    async with Client(build_server(config(read_only=read_only))) as client:
+        with pytest.raises(ToolError, match="single path segment"):
+            await client.call_tool("get_recipe", {"slug": "timeline/events", "full": True})
+
+    assert not timeline.called
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("get_shopping_list", {"list_id": "a/b"}),
+        ("update_shopping_item", {"item_id": "a/b", "checked": True}),
+        ("delete_shopping_item", {"item_id": "a/b"}),
+        ("add_recipe_to_shopping_list", {"list_id": "a/b", "recipe_slug": "roast"}),
+        ("delete_shopping_list", {"list_id": "a/b", "confirm_list_id": "a/b"}),
+        ("get_recipe_comments", {"slug": "a/b"}),
+        ("mark_recipe_made", {"slug": "a/b"}),
+        ("rate_recipe", {"slug": "a/b", "rating": 3}),
+        ("delete_recipe_comment", {"comment_id": "a/b"}),
+        ("update_meal_plan_entry", {"entry_id": "a/b", "title": "x"}),
+        ("delete_meal_plan_entry", {"entry_id": "a/b"}),
+        ("update_cookbook", {"cookbook_id": "a/b", "name": "X"}),
+        ("delete_cookbook", {"cookbook_id": "a/b"}),
+        ("delete_recipe", {"slug": "a/b", "confirm_slug": "a/b"}),
+        ("duplicate_recipe", {"slug": "a/b"}),
+        ("set_recipe_image", {"slug": "a/b", "url": "https://example.com/x.jpg"}),
+        ("get_recipe_timeline", {"slug": "a/b"}),
+        ("manage_taxonomy", {"resource": "foods", "action": "delete", "item_id": "a/b"}),
+    ],
+)
+async def test_interpolated_identifiers_are_one_path_segment(tool, args):
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="single path segment"):
+            await client.call_tool(tool, args)
+
+
+@respx.mock
 async def test_check_recipe_links_never_probes_a_loopback_source():
     respx.get(f"{BASE}/api/recipes").mock(
         return_value=httpx.Response(
@@ -1600,6 +1899,116 @@ async def test_check_recipe_links_never_probes_a_loopback_source():
     assert internal.call_count == 0
     assert data(result)["broken_sources"] == []
     assert [u["slug"] for u in data(result)["unverified_sources"]] == ["internal"]
+
+
+class _RecordingNetworkBackend:
+    """Stands in for httpcore's network backend and records what it dials."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int]] = []
+
+    async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        self.calls.append((host, port))
+        return object()
+
+    async def connect_unix_socket(self, path, timeout=None, socket_options=None):
+        raise AssertionError("the source-link checker never uses unix sockets")
+
+    async def sleep(self, seconds):
+        return None
+
+
+async def test_link_backend_dials_the_validated_address_not_the_hostname(monkeypatch):
+    # The regression: validation resolved once and httpx resolved the name a
+    # second time. The backend must resolve once and connect to that answer.
+    lookups: list[str] = []
+
+    async def lookup(host):
+        lookups.append(host)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+
+    monkeypatch.setattr(library, "_lookup", lookup)
+    inner = _RecordingNetworkBackend()
+    backend = library._PinnedBackend(inner)
+
+    await backend.connect_tcp("rebind.test", 443)
+
+    assert lookups == ["rebind.test"]
+    assert inner.calls == [("93.184.216.34", 443)]
+
+
+async def test_link_backend_refuses_a_non_global_address_without_dialing(monkeypatch):
+    async def lookup(host):
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0)),
+        ]
+
+    monkeypatch.setattr(library, "_lookup", lookup)
+    inner = _RecordingNetworkBackend()
+
+    with pytest.raises(httpcore.ConnectError, match="not globally routable"):
+        await library._PinnedBackend(inner).connect_tcp("rebind.test", 443)
+
+    assert inner.calls == []
+
+
+async def test_link_backend_fails_closed_when_resolution_fails(monkeypatch):
+    async def lookup(host):
+        raise OSError("no such host")
+
+    monkeypatch.setattr(library, "_lookup", lookup)
+    inner = _RecordingNetworkBackend()
+
+    with pytest.raises(httpcore.ConnectError, match="could not resolve"):
+        await library._PinnedBackend(inner).connect_tcp("gone.test", 443)
+
+    assert inner.calls == []
+
+
+async def test_routable_fails_closed_when_resolution_fails(monkeypatch):
+    async def lookup(host):
+        raise OSError("no such host")
+
+    monkeypatch.setattr(library, "_lookup", lookup)
+
+    assert await library._routable("https://gone.test/r") is False
+
+
+@respx.mock
+async def test_probe_falls_back_to_get_when_the_host_refuses_head(monkeypatch):
+    async def public_addresses(host):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+
+    monkeypatch.setattr(library, "_lookup", public_addresses)
+    head = respx.head("https://site.test/r").mock(return_value=httpx.Response(405))
+    get = respx.get("https://site.test/r").mock(return_value=httpx.Response(200))
+
+    async with library._link_client() as http:
+        result = await library._probe(http, "https://site.test/r")
+
+    assert result == {"status": 200}
+    assert head.called
+    assert get.called
+
+
+@respx.mock
+async def test_probe_blocks_a_redirect_to_loopback_without_requesting_it(monkeypatch):
+    async def mixed_addresses(host):
+        address = "93.184.216.34" if host == "site.test" else "127.0.0.1"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, 0))]
+
+    monkeypatch.setattr(library, "_lookup", mixed_addresses)
+    respx.head("https://site.test/r").mock(
+        return_value=httpx.Response(302, headers={"location": "http://127.0.0.1:12345/internal"})
+    )
+    internal = respx.head("http://127.0.0.1:12345/internal").mock(return_value=httpx.Response(200))
+
+    async with library._link_client() as http:
+        result = await library._probe(http, "https://site.test/r")
+
+    assert result == {"status": None, "error": library.BLOCKED}
+    assert not internal.called
 
 
 @respx.mock

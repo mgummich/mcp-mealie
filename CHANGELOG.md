@@ -29,6 +29,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Recipe slugs and IDs containing a literal `/` are now rejected as single
+  path segments. `get_recipe(slug="timeline/events")` used to reach Mealie's
+  unfiltered timeline endpoint; every interpolated identifier is now checked
+  before the route is built, while static multi-segment API paths still work.
+- `search_recipes(foods=[...])` keeps the foods Mealie knows when an any-of
+  search also names an unknown food, and returns an empty result for an
+  unknown required food without issuing an unfiltered recipe search. Food
+  lookup failures such as a 401, timeout, or 5xx now surface as tool errors
+  instead of successful empty results.
+- `update_shopping_item(item=...)` clears the structured food and unit left by
+  a recipe, so replacing "2 cup Onion" with "2 lemons" no longer renders
+  "Onion 2 lemons". Checking an item still keeps its structured ingredient.
+- `create_recipe` and `import_recipe_from_url` report the created slug when the
+  follow-up read fails, so a caller can find the existing recipe instead of
+  retrying the create and duplicating it.
+- `bulk_tag_recipes` reports mutations that already completed — created
+  taxonomy names and applied tag/category assignments — when a later
+  resolution or write fails, instead of returning only a generic error.
 - On Mealie 3.30, `get_recipe` lost `last_made`: Mealie moved it off the
   recipe. It is now read from the household's view of the recipe when the
   recipe no longer carries it.
@@ -63,6 +81,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- `check_recipe_links` pins each outbound connection to the globally routable
+  address it validated, closing the DNS-rebinding window between the check and
+  httpx's own resolution. Redirect hops and HEAD-to-GET fallbacks use the same
+  pinned client, resolution failures fail closed, and environment proxies are
+  ignored so a proxy cannot bypass the address restriction.
 - Locked dependencies bumped past published advisories: authlib 1.9.1,
   certifi 2026.10.19, dnspython 2.9.2, fastmcp 3.4.10, filelock 4.2.1,
   joserfc 1.7.6, mcp 1.30.0, opentelemetry-api 1.45.1, pyjwt 2.15.0,

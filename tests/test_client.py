@@ -10,7 +10,7 @@ import respx
 from fastmcp.exceptions import ToolError
 
 from mealie_mcp import client as client_module
-from mealie_mcp.client import MealieClient, MealieError, slugify
+from mealie_mcp.client import MealieClient, MealieError, check_segment, slugify
 
 BASE = "https://mealie.test"
 
@@ -449,3 +449,66 @@ async def test_refuses_a_path_that_escapes_its_segment(client):
             await client.request("GET", path)
 
     assert route.call_count == 0
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["timeline/events", "a\\b", "a?b", "a#b", "a%2fb", "a%2eb", "a%3fb", "a%23b", ".", "..", ""],
+)
+def test_check_segment_rejects_anything_but_one_path_segment(value):
+    with pytest.raises(ToolError, match="single path segment"):
+        check_segment(value, "recipe slug")
+
+
+def test_check_segment_accepts_a_normal_slug():
+    assert check_segment("roast-chicken", "recipe slug") == "roast-chicken"
+
+
+@respx.mock
+async def test_recipe_id_refuses_a_literal_slash_before_requesting(client):
+    route = respx.get(f"{BASE}/api/recipes/timeline/events")
+
+    with pytest.raises(ToolError, match="single path segment"):
+        await client.recipe_id("timeline/events")
+
+    assert not route.called
+
+
+@respx.mock
+async def test_recipe_details_refuses_a_literal_slash_before_requesting(client):
+    route = respx.get(f"{BASE}/api/recipes/timeline/events")
+
+    with pytest.raises(ToolError, match="single path segment"):
+        await client.recipe_details(["timeline/events"])
+
+    assert not route.called
+
+
+@respx.mock
+async def test_a_static_multi_segment_route_is_still_allowed(client):
+    route = respx.get(f"{BASE}/api/recipes/roast/comments").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+
+    assert await client.request("GET", "/api/recipes/roast/comments") == []
+    assert route.called
+
+
+@respx.mock
+async def test_taxonomy_lookup_partitions_known_and_missing_names(client):
+    respx.get(f"{BASE}/api/foods").mock(
+        return_value=httpx.Response(200, json={"items": [{"id": "f1", "name": "Onion"}]})
+    )
+
+    resolved, missing = await client.taxonomy_lookup("foods", ["onion", "Truffle"])
+
+    assert resolved == [{"id": "f1", "name": "Onion"}]
+    assert missing == ["Truffle"]
+
+
+@respx.mock
+async def test_taxonomy_lookup_does_not_swallow_operational_failures(client):
+    respx.get(f"{BASE}/api/foods").mock(return_value=httpx.Response(401))
+
+    with pytest.raises(MealieError, match="MEALIE_API_TOKEN"):
+        await client.taxonomy_lookup("foods", ["Onion"])

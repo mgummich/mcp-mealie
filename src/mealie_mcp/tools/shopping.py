@@ -8,7 +8,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from .. import shape
-from ..client import MealieClient
+from ..client import MealieClient, check_segment
 
 GetClient = Callable[[], MealieClient]
 
@@ -42,6 +42,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
     @mcp.tool
     async def get_shopping_list(list_id: str) -> dict:
         """Get one shopping list's items."""
+        list_id = check_segment(list_id, "shopping list id")
         book = await get_client().request(
             "GET",
             f"/api/households/shopping/lists/{list_id}",
@@ -67,6 +68,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
 
         Pass a list to add many in one call: ["2 lemons", "1 bunch cilantro"].
         """
+        list_id = check_segment(list_id, "shopping list id")
         if isinstance(item, str):
             result = await get_client().request(
                 "POST",
@@ -92,6 +94,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         if item is None and checked is None:
             raise ToolError("pass at least one field to change")
 
+        item_id = check_segment(item_id, "shopping item id")
         client = get_client()
         # PUT is a full replace and requires shoppingListId, so patch onto the
         # current row rather than guessing at what it needs.
@@ -101,8 +104,13 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             not_found=f"shopping item {item_id!r} not found",
         )
         if item is not None:
+            # Free text replaces the whole line. The structured food and unit
+            # left over from a recipe would otherwise be rendered in front of
+            # it ("Onion 2 lemons").
             current["note"] = item
             current["quantity"] = 0
+            for key in ("food", "foodId", "unit", "unitId"):
+                current.pop(key, None)
         if checked is not None:
             current["checked"] = checked
 
@@ -122,6 +130,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         off after a shop.
         """
         if isinstance(item_id, str):
+            item_id = check_segment(item_id, "shopping item id")
             await get_client().request(
                 "DELETE",
                 f"/api/households/shopping/items/{item_id}",
@@ -143,6 +152,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         merges matching ingredients across them.
         """
         slugs = _batch(recipe_slug, "recipe_slug")
+        list_id = check_segment(list_id, "shopping list id")
         client = get_client()
         # Resolve every slug before writing, so a typo fails the call instead
         # of leaving a list with half the recipes on it.
@@ -166,6 +176,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
                 f"confirm_list_id {confirm_list_id!r} does not match list_id {list_id!r} "
                 "— nothing deleted"
             )
+        list_id = check_segment(list_id, "shopping list id")
         await get_client().request(
             "DELETE",
             f"/api/households/shopping/lists/{list_id}",
