@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-09
+
 ### Added
 
 - Batch writes for planning a week in a few calls instead of dozens.
@@ -346,6 +348,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multi-day random meal planning built into the tools.
 - Bundled agent skill at `skills/mealie/SKILL.md`.
 
+[0.5.0]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.5.0
 [0.4.0]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.4.0
 [0.3.1]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.3.1
 [0.3.0]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.3.0
