@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same shape `manage_taxonomy` uses: per-entry dicts, results and errors
   reported separately, one bad entry does not stop the rest. Lists are capped
   at 100 items and 62 plan entries per call. Passing a single value behaves
-  exactly as before.
+  exactly as before. Contributed by @jw-dickson in #38 — thank you!
 - Mealie 3.29 and 3.30 features. `search_recipes(max_total_minutes=…)` finds
   recipes done within that time, quickest first (3.29+).
   `add_meal_plan_entry` takes `end_date` for a "sometime this week" entry
