@@ -853,7 +853,7 @@ async def test_tool_results_are_not_sent_twice():
 
     async with Client(build_server(config())) as client:
         result = await client.call_tool("search_recipes", {"query": "x"})
-        schemas = [t.outputSchema for t in await client.list_tools()]
+        schemas = [t.output_schema for t in await client.list_tools()]
 
     assert result.structured_content is None
     # A declared output schema is what obliges the server to send one.
