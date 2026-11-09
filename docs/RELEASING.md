@@ -61,14 +61,5 @@ gh release edit v0.X.Y --notes-file notes.md
 `uvx --from git+https://github.com/mgummich/mcp-mealie@vX.Y.Z mcp-mealie`
 needs only the tag, which is why the install docs use it.
 
-Putting this on PyPI would mean creating a pending publisher on pypi.org
-(project `mcp-mealie`, owner `mgummich`, repository `mcp-mealie`, workflow
-`release.yml`, environment `pypi`) and restoring the `pypa/gh-action-pypi-publish`
-step. It was removed because the account does not exist; v0.2.0's publish
-attempt failed with `invalid-publisher`, uploading nothing.
-
-The MCP registry waits on the same thing, and its manifest is gone with it:
-`server.json` declared a `pypi` package that was never published, so the
-registry had nothing to verify ownership of. Publishing there again means
-restoring the manifest (`git log -- server.json`) alongside the package it
-points at, plus the `mcp-name:` marker the README carried.
+There is no PyPI package and no MCP registry entry, by design: the git tag is
+the distribution.
