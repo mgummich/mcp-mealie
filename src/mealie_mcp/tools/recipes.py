@@ -199,6 +199,15 @@ async def _fetch_recipe(
     recipe = await client.request(
         "GET", f"/api/recipes/{slug}", not_found=f"recipe {slug!r} not found"
     )
+    if not full and "lastMade" not in recipe and (not fields or "last_made" in fields):
+        # Mealie 3.30 dropped lastMade from the recipe; the household's view of
+        # the recipe still carries it (and has since 2.0). Best effort: a
+        # recipe without its cooking date beats no recipe.
+        try:
+            summary = await client.request("GET", f"/api/households/self/recipes/{slug}")
+            recipe = {**recipe, "lastMade": (summary or {}).get("lastMade")}
+        except MealieError:
+            pass
     return shape.pick(recipe if full else shape.recipe_detail(recipe), fields)
 
 
@@ -220,11 +229,15 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         tools: list[str] | None = None,
         foods: list[str] | None = None,
         require_all: bool = False,
+        max_total_minutes: int | None = None,
         fields: list[str] | None = None,
         page: int = 1,
         limit: int = 20,
     ) -> dict:
         """Search recipes by text and/or filter by tags, categories, tools, or foods.
+
+        max_total_minutes keeps recipes done within that time, quickest first
+        (Mealie 3.29+; a recipe whose time is unparseable text never matches).
 
         Returns slim results (slug, name, description). Use get_recipe with a
         slug for full detail. Filtering happens server-side, so prefer filters
@@ -269,8 +282,18 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
                 return {"items": [], "count": 0, "note": str(exc)}
             params["foods"] = [f["id"] for f in resolved]
             params["requireAllFoods"] = require_all
+        if max_total_minutes is not None:
+            params["queryFilter"] = f"totalTimeSeconds <= {max(max_total_minutes, 0) * 60}"
+            params["orderBy"] = "totalTimeSeconds"
+            params["orderDirection"] = "asc"
 
-        result = await client.request("GET", "/api/recipes", params=params)
+        try:
+            result = await client.request("GET", "/api/recipes", params=params)
+        except MealieError as exc:
+            # Before 3.29 the field does not exist and Mealie answers 400.
+            if max_total_minutes is None or exc.status != 400:
+                raise
+            raise ToolError(f"max_total_minutes needs Mealie 3.29 or newer: {exc}") from exc
         shaper = (
             (lambda r: shape.pick(shape.recipe_detail(r), fields))
             if fields
@@ -374,7 +397,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             if prep_time is not None:
                 payload["prepTime"] = prep_time
             if cook_time is not None:
-                payload["cookTime"] = cook_time
+                payload["performTime"] = cook_time
             if source_url is not None:
                 payload["orgURL"] = source_url
             if recipe_ingredient:
@@ -459,7 +482,15 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         if prep_time is not None:
             payload["prepTime"] = prep_time
         if cook_time is not None:
-            payload["cookTime"] = cook_time
+            payload["performTime"] = cook_time
+        # Mealie 3.29+ keeps parsed times as seconds and prefers them, so new
+        # text next to an old duration would never show. Clear the duration.
+        for text_key, seconds_key in (
+            ("prepTime", "prepTimeSeconds"),
+            ("performTime", "performTimeSeconds"),
+        ):
+            if text_key in payload and current.get(seconds_key) is not None:
+                payload[seconds_key] = None
         if source_url is not None:
             payload["orgURL"] = source_url
         if ingredients is not None:

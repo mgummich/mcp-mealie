@@ -90,6 +90,21 @@ def instruction(step: dict) -> str:
     return f"{title}: {text}" if title else text
 
 
+def _duration(text: str | None, seconds: Any) -> str | None:
+    """A recipe time as text, from Mealie's free text or its structured seconds.
+
+    Mealie 3.29 moved every parseable time into a *TimeSeconds field and
+    cleared the text, so the text alone misses most recipes from then on.
+    """
+    if text or not isinstance(seconds, int) or seconds <= 0:
+        return text
+    hours, minutes = divmod(round(seconds / 60), 60)
+    parts = [f"{hours} hour{'s' * (hours != 1)}"] if hours else []
+    if minutes or not hours:
+        parts.append(f"{max(minutes, 1)} minute{'s' * (minutes != 1)}")
+    return " ".join(parts)
+
+
 def names(items: list[dict] | None) -> list[str]:
     """Extract the "name" field from a list of taxonomy objects.
 
@@ -122,9 +137,14 @@ def recipe_detail(recipe: dict) -> dict:
             "slug": recipe.get("slug"),
             "description": recipe.get("description"),
             "yield": recipe.get("recipeYield"),
-            "prep_time": recipe.get("prepTime"),
-            "cook_time": recipe.get("cookTime"),
-            "total_time": recipe.get("totalTime"),
+            "prep_time": _duration(recipe.get("prepTime"), recipe.get("prepTimeSeconds")),
+            # Mealie's UI labels performTime "Cook Time"; cookTime is a legacy
+            # column only older rows still fill.
+            "cook_time": _duration(
+                recipe.get("performTime") or recipe.get("cookTime"),
+                recipe.get("performTimeSeconds"),
+            ),
+            "total_time": _duration(recipe.get("totalTime"), recipe.get("totalTimeSeconds")),
             "ingredients": [ingredient(i) for i in recipe.get("recipeIngredient") or []],
             "instructions": [instruction(s) for s in recipe.get("recipeInstructions") or []],
             "tags": names(recipe.get("tags")),
@@ -193,15 +213,20 @@ def meal_plan_entry(entry: dict) -> dict:
         entry: A raw ReadPlanEntry object.
 
     Returns:
-        Dict with entry_id, date, meal type, and either the linked recipe's
-        slug and name or the free-text title; empty fields dropped.
+        Dict with entry_id, date (and end_date for a week-long entry), meal
+        type, either the linked recipe's slug and name or the free-text title,
+        and scale when it is not 1; empty fields dropped.
     """
     recipe = entry.get("recipe") or {}
+    scale = entry.get("recipeScale")
     return _clean(
         {
             "entry_id": entry.get("id"),
             "date": entry.get("date"),
+            # Mealie 3.30: an entry for "sometime this week" spans date..endDate.
+            "end_date": entry.get("endDate"),
             "meal": entry.get("entryType"),
+            "scale": scale if scale not in (None, 1) else None,
             # A plan entry is either a linked recipe or a free-text title.
             "recipe_slug": recipe.get("slug"),
             "name": recipe.get("name") or entry.get("title"),

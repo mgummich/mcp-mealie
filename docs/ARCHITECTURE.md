@@ -194,15 +194,26 @@ removed from the environment.
 ## Compatibility
 
 Mealie **2.0 or newer**. The startup probe refuses 1.x, which has no
-`/api/households` endpoints. CI runs the integration suite against **2.8.0**
-(oldest supported) and **3.25.1** (newest stable) on every push; those two
-versions are the whole basis of the compatibility claim, and
-`tests/test_docs.py` checks that the README's claim and the CI matrix still
-name the same versions.
+`/api/households` endpoints. CI runs the integration suite against **2.8.0**,
+**3.25.1**, and **3.30.0** on every push: the oldest supported, the last
+before Mealie 3.29/3.30 moved recipe times to seconds and `lastMade` off the
+recipe, and the newest stable. Those three versions are the whole basis of the
+compatibility claim, and `tests/test_docs.py` checks that the README's claim
+and the CI matrix still name the same versions.
 
 Mealie 3.x only: `import_recipe_from_images`, and the `snack`, `drink`, and
 `dessert` meal plan entry types. On 2.x, Mealie itself rejects those with its
 own message; this server does not gate them.
+
+Newer than that, nothing is gated on a version check either; each feature
+copes with what an older Mealie answers. 3.29+: `max_total_minutes` (older
+versions answer 400, reworded as "needs 3.29") and meal plan `scale` (ignored
+before). 3.30+: merging tools and labels (405 before, reworded), week-long
+plan entries (`end_date`, ignored before), and `recipeCount` on foods and
+tools, which `library_stats` uses instead of sweeping when every item has it.
+The 3.29/3.30 shape changes are absorbed in the shaper and `_fetch_recipe`:
+times fall back to the `*TimeSeconds` fields, and `last_made` falls back to
+`/api/households/self/recipes/{slug}`, which exists from 2.0 on.
 
 Python 3.11-3.13, all three in CI.
 

@@ -28,16 +28,20 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _mealie_major() -> int:
-    """Major version of the instance under test, or 0 when not running."""
+def _mealie_version() -> tuple[int, int]:
+    """(major, minor) of the instance under test, or (0, 0) when not running."""
     if os.environ.get("MEALIE_INTEGRATION") != "1":
-        return 0
+        return (0, 0)
     about = httpx.get(f"{os.environ['MEALIE_URL']}/api/app/about", timeout=10).json()
-    return int(str(about.get("version") or "0").lstrip("v").split(".")[0])
+    major, minor = [*str(about.get("version") or "0").lstrip("v").split("."), "0"][:2]
+    return (int(major), int(minor))
 
 
+MEALIE_VERSION = _mealie_version()
 #: Recipe import from images is a Mealie 3.x endpoint; 2.x answers 405.
-needs_mealie_3 = pytest.mark.skipif(_mealie_major() < 3, reason="needs Mealie 3.x")
+needs_mealie_3 = pytest.mark.skipif(MEALIE_VERSION < (3, 0), reason="needs Mealie 3.x")
+#: Week-long plan entries, tool/label merge, and recipeCount on foods/tools.
+needs_mealie_3_30 = pytest.mark.skipif(MEALIE_VERSION < (3, 30), reason="needs Mealie 3.30")
 
 
 @pytest.fixture
@@ -355,3 +359,107 @@ async def test_image_import_reports_a_missing_ai_provider(client, tmp_path):
     )
     with pytest.raises(ToolError, match="AI services are not enabled"):
         await client.call_tool("import_recipe_from_images", {"paths": [str(photo)]})
+
+
+@needs_mealie_3_30
+async def test_week_entries_scale_and_recorded_times(client):
+    slug = data(await client.call_tool("create_recipe", {"name": "Week Test Lasagna"}))["slug"]
+    entry_ids: list = []
+    try:
+        # Our tools write times as text; a stored duration is what Mealie's own
+        # UI and scraper produce, so set one the way they would.
+        async with httpx.AsyncClient(
+            base_url=os.environ["MEALIE_URL"],
+            headers={"Authorization": f"Bearer {os.environ['MEALIE_API_TOKEN']}"},
+        ) as raw:
+            (
+                await raw.patch(f"/api/recipes/{slug}", json={"totalTimeSeconds": 1200})
+            ).raise_for_status()
+        assert data(await client.call_tool("get_recipe", {"slug": slug}))["total_time"] == (
+            "20 minutes"
+        )
+        quick = data(await client.call_tool("search_recipes", {"max_total_minutes": 30}))
+        assert slug in {r["slug"] for r in quick["items"]}
+        slow = data(await client.call_tool("search_recipes", {"max_total_minutes": 10}))
+        assert slug not in {r["slug"] for r in slow["items"]}
+
+        start = date.today()  # noqa: DTZ011
+        end = start + timedelta(days=6)
+        added = data(
+            await client.call_tool(
+                "add_meal_plan_entry",
+                {
+                    "date": start.isoformat(),
+                    "end_date": end.isoformat(),
+                    "recipe_slug": slug,
+                    "scale": 2,
+                },
+            )
+        )
+        entry_ids.append(added["entry_id"])
+        assert added["end_date"] == end.isoformat()
+        assert added["scale"] == 2
+
+        # Mealie hides week-long entries from the plan unless asked.
+        plan = data(
+            await client.call_tool(
+                "get_meal_plan", {"start_date": start.isoformat(), "end_date": end.isoformat()}
+            )
+        )
+        assert added["entry_id"] in {e["entry_id"] for e in plan["items"]}
+    finally:
+        for entry_id in entry_ids:
+            await client.call_tool("delete_meal_plan_entry", {"entry_id": entry_id})
+        await client.call_tool("delete_recipe", {"slug": slug, "confirm_slug": slug})
+
+
+@needs_mealie_3_30
+async def test_tool_merge_and_mealie_counted_usage(client):
+    keeper = data(
+        await client.call_tool(
+            "manage_taxonomy", {"resource": "tools", "action": "create", "name": "Merge Keeper Pan"}
+        )
+    )
+    loser = data(
+        await client.call_tool(
+            "manage_taxonomy", {"resource": "tools", "action": "create", "name": "Merge Loser Pan"}
+        )
+    )
+    slug = data(await client.call_tool("create_recipe", {"name": "Merge Test Hash"}))["slug"]
+    try:
+        await client.call_tool("update_recipe", {"slug": slug, "tools": ["Merge Loser Pan"]})
+        merged = await client.call_tool(
+            "manage_taxonomy",
+            {
+                "resource": "tools",
+                "action": "merge",
+                "item_id": loser["id"],
+                "merge_into": keeper["id"],
+            },
+        )
+        assert data(merged)["into"] == keeper["id"]
+        assert data(await client.call_tool("get_recipe", {"slug": slug}))["tools"] == [
+            "Merge Keeper Pan"
+        ]
+
+        stats = data(await client.call_tool("library_stats", {"resource": "tools"}))
+        assert "recipes_scanned" not in stats  # Mealie's own counts, no sweep
+        counts = {r["name"]: r["recipe_count"] for r in stats["items"]}
+        assert counts["Merge Keeper Pan"] == 1
+        assert "Merge Loser Pan" not in counts
+    finally:
+        await client.call_tool("delete_recipe", {"slug": slug, "confirm_slug": slug})
+        await client.call_tool(
+            "manage_taxonomy", {"resource": "tools", "action": "delete", "item_id": keeper["id"]}
+        )
+
+
+@pytest.mark.skipif(MEALIE_VERSION >= (3, 29), reason="checks the pre-3.29 refusals")
+async def test_newer_features_name_the_version_they_need(client):
+    with pytest.raises(ToolError, match=r"needs Mealie 3\.29"):
+        await client.call_tool("search_recipes", {"max_total_minutes": 30})
+    with pytest.raises(ToolError, match=r"needs Mealie 3\.30"):
+        await client.call_tool(
+            "manage_taxonomy",
+            {"resource": "labels", "action": "merge", "item_id": "a", "merge_into": "b"},
+        )

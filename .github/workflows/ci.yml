@@ -31,7 +31,7 @@ jobs:
       matrix:
         # The oldest release this server claims to support, and the newest
         # stable one. Both are what the README's compatibility note rests on.
-        mealie: ["v2.8.0", "v3.25.1"]
+        mealie: ["v2.8.0", "v3.25.1", "v3.30.0"]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v9.0.0

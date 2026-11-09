@@ -85,10 +85,19 @@ async def _apply(
             )
         if not item_id or not merge_into:
             raise ToolError("merge requires item_id (the loser) and merge_into (the keeper)")
-        from_key, to_key = MERGE_KEYS[resource]
-        merged = await client.request(
-            "PUT", f"{path}/merge", json={from_key: item_id, to_key: merge_into}
-        )
+        method, from_key, to_key = MERGE_KEYS[resource]
+        try:
+            merged = await client.request(
+                method, f"{path}/merge", json={from_key: item_id, to_key: merge_into}
+            )
+        except MealieError as exc:
+            # Before 3.30 the path only matches /{item_id}, which has no POST.
+            if exc.status != 405:
+                raise
+            raise ToolError(
+                f"merging {resource} needs Mealie 3.30 or newer — on this version, "
+                "re-tag the recipes and delete the leftover"
+            ) from exc
         client.forget_taxonomy(resource)
         return {**shape.taxonomy_item(merged or {}), "merged": item_id, "into": merge_into}
 

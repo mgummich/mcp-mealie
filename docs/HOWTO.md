@@ -115,7 +115,8 @@ set one recipe's list exactly, use `update_recipe` with `replace_tags=True`.
 
 **Merge duplicate foods.** `manage_taxonomy("foods", "merge", item_id=<loser>,
 merge_into=<keeper>)` uses Mealie's own merge endpoint and repoints every
-recipe that used the loser. Deleting the duplicate instead strips it from
+recipe that used the loser. Units merge the same way, and on Mealie 3.30+ so
+do tools and labels. Deleting the duplicate instead strips it from
 those recipes — that is the difference worth confirming out loud before
 running it. A food or unit that is still on a shopping list cannot be deleted
 at all: Mealie answers 409 and the tool says to merge instead. Note that

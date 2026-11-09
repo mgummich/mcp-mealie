@@ -43,10 +43,13 @@ TAXONOMY_PATHS = {
     "tools": "/api/organizers/tools",
 }
 
-#: Resources with a server-side merge endpoint, and the body keys it wants.
+#: Resources with a server-side merge endpoint: its method and the body keys it
+#: wants. Tools and labels gained theirs in Mealie 3.30.
 MERGE_KEYS = {
-    "foods": ("fromFood", "toFood"),
-    "units": ("fromUnit", "toUnit"),
+    "foods": ("PUT", "fromFood", "toFood"),
+    "units": ("PUT", "fromUnit", "toUnit"),
+    "tools": ("POST", "fromId", "toId"),
+    "labels": ("POST", "fromId", "toId"),
 }
 
 #: POSTs that change nothing, so they must not invalidate the recipe cache.
