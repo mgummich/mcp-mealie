@@ -35,8 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - On Mealie 3.29+, `get_recipe` and `search_recipes` showed no prep, cook, or
   total time for recipes whose times Mealie had converted to durations. They
   now fall back to those durations.
-- `get_meal_plan` showed no week-long entries on Mealie 3.30, which hides them
-  unless asked.
+- `get_meal_plan` and `get_todays_meals` showed no week-long entries on Mealie
+  3.30, which hides them unless asked. `get_todays_meals` now asks for the
+  host's date, the one it already echoed back, rather than Mealie's.
+- A 403 read "authentication failed — check MEALIE_API_TOKEN", though the
+  token worked and its user lacked a permission (on Mealie 3.30, *can
+  organize* for units, tools, and labels). It now says that, with Mealie's
+  own reason.
 - `create_recipe` and `update_recipe` wrote `cook_time` to Mealie's legacy
   `cookTime` field, which Mealie's UI never showed and its next release drops.
   It now goes to `performTime`, the field Mealie labels "Cook Time", and

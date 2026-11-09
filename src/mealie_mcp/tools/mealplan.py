@@ -125,9 +125,22 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         The date is resolved on the machine running this server, and echoed
         back so a timezone mismatch is visible rather than silent.
         """
-        result = await get_client().request("GET", "/api/households/mealplans/today")
-        entries = [shape.meal_plan_entry(e) for e in result or []]
-        return {"date": _today(), "items": entries, "count": len(entries)}
+        today = _today()
+        # A one-day range rather than /today: that endpoint leaves out Mealie
+        # 3.30's week-long entries, and a week's lasagna is still today's
+        # option. It also makes the date the one echoed back.
+        result = await get_client().request(
+            "GET",
+            "/api/households/mealplans",
+            params={
+                "start_date": today,
+                "end_date": today,
+                "include_week_entries": True,
+                "perPage": 200,
+            },
+        )
+        entries = [shape.meal_plan_entry(e) for e in (result or {}).get("items") or []]
+        return {"date": today, "items": entries, "count": len(entries)}
 
     if read_only:
         return

@@ -2080,3 +2080,34 @@ async def test_library_stats_uses_mealies_own_counts_instead_of_sweeping():
     ]
     assert data(result)["sweep_complete"] is True
     assert "recipes_scanned" not in data(result)
+
+
+@respx.mock
+async def test_get_todays_meals_includes_week_long_entries():
+    # /today leaves 3.30's week entries out; a one-day range with the flag
+    # keeps them, and pins the date to the one the tool echoes.
+    plan = respx.get(f"{BASE}/api/households/mealplans").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "id": 1,
+                        "date": "2026-11-09",
+                        "endDate": "2026-11-15",
+                        "entryType": "dinner",
+                        "title": "Lasagna",
+                    }
+                ],
+                "total": 1,
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("get_todays_meals", {})
+
+    params = plan.calls.last.request.url.params
+    assert params["start_date"] == params["end_date"] == data(result)["date"]
+    assert params["include_week_entries"] == "true"
+    assert data(result)["items"][0]["end_date"] == "2026-11-15"

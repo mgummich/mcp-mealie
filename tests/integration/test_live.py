@@ -407,6 +407,19 @@ async def test_week_entries_scale_and_recorded_times(client):
             )
         )
         assert added["entry_id"] in {e["entry_id"] for e in plan["items"]}
+        today = data(await client.call_tool("get_todays_meals", {}))
+        assert added["entry_id"] in {e["entry_id"] for e in today["items"]}
+        # And a range the week does not touch must not drag it in.
+        later = data(
+            await client.call_tool(
+                "get_meal_plan",
+                {
+                    "start_date": (end + timedelta(days=1)).isoformat(),
+                    "end_date": (end + timedelta(days=7)).isoformat(),
+                },
+            )
+        )
+        assert added["entry_id"] not in {e["entry_id"] for e in later["items"]}
     finally:
         for entry_id in entry_ids:
             await client.call_tool("delete_meal_plan_entry", {"entry_id": entry_id})
