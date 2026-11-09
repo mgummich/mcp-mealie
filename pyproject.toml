@@ -25,6 +25,9 @@ dev = [
     "mypy>=1.11",
     "pre-commit>=3.8",
 ]
+docs = [
+    "mkdocs-material>=9.6",
+]
 
 [project.urls]
 Homepage = "https://github.com/mgummich/mcp-mealie"

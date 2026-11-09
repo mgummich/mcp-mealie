@@ -4,32 +4,26 @@ on:
   push:
     branches: [main]
     paths:
-      - "README.md"
-      - "CHANGELOG.md"
+      - "*.md"
       - "docs/**"
-      - "_config.yml"
-      - "_layouts/**"
-      - "index.md"
-      - "howto.md"
-      - "releases.md"
+      - "mkdocs.yml"
+      - "scripts/mkdocs_hooks.py"
+      - "pyproject.toml"
+      - "uv.lock"
       - ".github/workflows/pages.yml"
   pull_request:
     paths:
-      - "README.md"
-      - "CHANGELOG.md"
+      - "*.md"
       - "docs/**"
-      - "_config.yml"
-      - "_layouts/**"
-      - "index.md"
-      - "howto.md"
-      - "releases.md"
+      - "mkdocs.yml"
+      - "scripts/mkdocs_hooks.py"
+      - "pyproject.toml"
+      - "uv.lock"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # A queued deploy replaces a running one; a half-published site helps nobody.
 concurrency:
@@ -42,14 +36,24 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/configure-pages@v6
-      - uses: actions/jekyll-build-pages@v1
+      - uses: astral-sh/setup-uv@v9.0.0
+      # --strict fails the build on a broken link or a page missing from nav.
+      - run: uv run --extra docs mkdocs build --strict
+        env:
+          NO_MKDOCS_2_WARNING: "1"
       - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/
 
   deploy:
     # Pull requests build only — deploying happens once the change is on main.
     if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
+    # Only the deploy job can publish; the build job runs third-party code.
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}

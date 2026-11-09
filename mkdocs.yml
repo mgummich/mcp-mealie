@@ -1,0 +1,54 @@
+site_name: mcp-mealie
+site_description: >-
+  A curated, token-efficient MCP server for Mealie recipes, meal plans,
+  cookbooks, and library cleanup.
+site_url: https://mgummich.github.io/mcp-mealie/
+repo_url: https://github.com/mgummich/mcp-mealie
+edit_uri: ""
+
+# README, CHANGELOG, CONTRIBUTING and SECURITY live at the repo root; the hook
+# publishes them and rewrites repo-relative links to site pages.
+docs_dir: docs
+exclude_docs: archive/
+hooks:
+  - scripts/mkdocs_hooks.py
+
+nav:
+  - Home: index.md
+  - Howto: HOWTO.md
+  - Changelog: changelog.md
+  - Development:
+      - Architecture: ARCHITECTURE.md
+      - Contributing: contributing.md
+      - Releasing: RELEASING.md
+      - Security: security.md
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: green
+      accent: green
+      toggle:
+        icon: material/brightness-7
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: green
+      accent: green
+      toggle:
+        icon: material/brightness-4
+        name: Light mode
+  features:
+    - content.code.copy
+    - navigation.sections
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
