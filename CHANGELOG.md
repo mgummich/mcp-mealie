@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without anyone writing the frame by hand. `docs/RELEASING.md` describes the
   shape and the one editorial step that cannot be generated.
 
+### Security
+
+- Locked dependencies bumped past published advisories: authlib 1.9.1,
+  certifi 2026.10.19, dnspython 2.9.2, fastmcp 3.4.10, filelock 4.2.1,
+  joserfc 1.7.6, mcp 1.30.0, opentelemetry-api 1.45.1, pyjwt 2.15.0,
+  virtualenv 21.14.13.
+
 ## [0.4.0] - 2026-09-12
 
 ### Added
