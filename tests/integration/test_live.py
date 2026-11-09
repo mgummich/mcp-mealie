@@ -11,12 +11,15 @@ from __future__ import annotations
 
 import base64
 import os
+import sys
 from datetime import date, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
 from conftest import data
 from fastmcp import Client
+from fastmcp.client.transports import StdioTransport
 from fastmcp.exceptions import ToolError
 
 from mealie_mcp.config import Config
@@ -56,6 +59,33 @@ async def test_all_tools_registered(client):
     # module registers against a real instance.
     tools = {t.name for t in await client.list_tools()}
     assert {"search_recipes", "create_recipe", "get_meal_plan", "list_cookbooks"} <= tools
+
+
+async def test_stdio_entrypoint():
+    # Every other test runs the server in-process; this one runs the installed
+    # console script over stdio, the way an MCP client launches it, so main(),
+    # the startup probe and the stdio framing are exercised too.
+    transport = StdioTransport(
+        command=str(Path(sys.executable).with_name("mcp-mealie")),
+        args=[],
+        env=dict(os.environ),  # the SDK passes only a minimal env by default
+    )
+    # A stray non-protocol line on stdout does not fail a call: the SDK hands
+    # it to the message handler as a parse error and carries on.
+    stdout_errors: list[Exception] = []
+
+    async def on_message(message):
+        if isinstance(message, Exception):
+            stdout_errors.append(message)
+
+    async with Client(transport, message_handler=on_message) as c:
+        tools = {t.name for t in await c.list_tools()}
+        result = await c.call_tool("search_recipes", {"limit": 1})
+
+    assert stdout_errors == []
+    assert "search_recipes" in tools
+    assert "items" in data(result)
+    assert result.structured_content is None
 
 
 async def test_read_tools(client):
