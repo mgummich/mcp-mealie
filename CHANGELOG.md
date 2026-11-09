@@ -7,7 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Batch writes for planning a week in a few calls instead of dozens.
+  `add_shopping_item` and `delete_shopping_item` take a list as well as a
+  single value and send it as one request (Mealie's `create-bulk` and
+  delete-many endpoints). `add_recipe_to_shopping_list` takes a list of slugs,
+  resolves them all before writing, and adds every recipe in one request so
+  Mealie merges matching ingredients. `add_meal_plan_entry` takes `items`, the
+  same shape `manage_taxonomy` uses: per-entry dicts, results and errors
+  reported separately, one bad entry does not stop the rest. Lists are capped
+  at 100 items and 62 plan entries per call. Passing a single value behaves
+  exactly as before.
+
 ### Changed
+
+- `add_recipe_to_shopping_list` uses `POST /shopping/lists/{id}/recipe`
+  instead of `/recipe/{recipe_id}`, which Mealie marks deprecated. Both exist
+  from 2.8.0 on.
 
 - The release workflow wraps the changelog section in a generated install
   block and a changelog/diff/skill footer, so every release reads the same way

@@ -20,6 +20,10 @@ GetClient = Callable[[], MealieClient]
 
 ENTRY_TYPES = ("breakfast", "lunch", "dinner", "side", "snack", "drink", "dessert")
 MAX_RANDOM_DAYS = 14
+# Mealie has no bulk create for plan entries, so a batch is one POST per item;
+# the cap bounds a runaway call, not a normal month of dinners.
+MAX_BATCH_ENTRIES = 62
+ENTRY_KEYS = ("date", "entry_type", "recipe_slug", "title", "note")
 
 
 def _as_date(value: str, field: str) -> date_type:
@@ -42,6 +46,36 @@ def _check_entry_type(entry_type: str) -> str:
     if entry_type not in ENTRY_TYPES:
         raise ToolError(f"entry_type must be one of {', '.join(ENTRY_TYPES)} (got {entry_type!r})")
     return entry_type
+
+
+async def _add_entry(
+    client: MealieClient,
+    date: str | None,
+    entry_type: str,
+    recipe_slug: str | None,
+    title: str | None,
+    note: str | None,
+) -> dict:
+    if not date:
+        raise ToolError("pass date")
+    if not recipe_slug and not title:
+        raise ToolError("pass either recipe_slug or title")
+
+    payload: dict[str, Any] = {
+        "date": _as_date(date, "date").isoformat(),
+        "entryType": _check_entry_type(entry_type),
+    }
+    if recipe_slug:
+        # CreatePlanEntry wants a UUID, not a slug; the client caches these
+        # because planning a week re-resolves the same recipes repeatedly.
+        payload["recipeId"] = await client.recipe_id(recipe_slug)
+    if title:
+        payload["title"] = title
+    if note:
+        payload["text"] = note
+
+    entry = await client.request("POST", "/api/households/mealplans", json=payload)
+    return shape.meal_plan_entry(entry)
 
 
 def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
@@ -85,37 +119,76 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
 
     @mcp.tool
     async def add_meal_plan_entry(
-        date: str,
+        date: str | None = None,
         entry_type: str = "dinner",
         recipe_slug: str | None = None,
         title: str | None = None,
         note: str | None = None,
+        items: list[dict[str, Any]] | None = None,
     ) -> dict:
-        """Plan one meal on one day.
+        """Plan meals: one with the fields below, or many with items.
 
         Pass recipe_slug to link an existing recipe, or title for a free-text
         entry like "leftovers". entry_type is breakfast, lunch, dinner, side,
         snack, drink, or dessert.
+
+        items plans a whole week in one call: a list of per-entry dicts using
+        the same keys — date, entry_type, recipe_slug, title, note. An item
+        without entry_type uses the call's entry_type. The reply carries
+        results and errors separately; one bad entry does not stop the rest.
+        Example: items=[{"date": "2026-10-12", "recipe_slug": "pad-thai"},
+        {"date": "2026-10-13", "title": "leftovers"}].
         """
-        if not recipe_slug and not title:
-            raise ToolError("pass either recipe_slug or title")
-
         client = get_client()
-        payload: dict[str, Any] = {
-            "date": _as_date(date, "date").isoformat(),
-            "entryType": _check_entry_type(entry_type),
-        }
-        if recipe_slug:
-            # CreatePlanEntry wants a UUID, not a slug; the client caches these
-            # because planning a week re-resolves the same recipes repeatedly.
-            payload["recipeId"] = await client.recipe_id(recipe_slug)
-        if title:
-            payload["title"] = title
-        if note:
-            payload["text"] = note
+        if items is None:
+            return await _add_entry(client, date, entry_type, recipe_slug, title, note)
 
-        entry = await client.request("POST", "/api/households/mealplans", json=payload)
-        return shape.meal_plan_entry(entry)
+        if not items:
+            raise ToolError("items is empty — nothing to do")
+        if len(items) > MAX_BATCH_ENTRIES:
+            raise ToolError(
+                f"items has {len(items)} entries; the cap is {MAX_BATCH_ENTRIES} per call. "
+                "Split it across calls."
+            )
+        if any(v is not None for v in (date, recipe_slug, title, note)):
+            raise ToolError(
+                "pass the entry fields inside each item, not alongside items "
+                "(entry_type alone is allowed, as the default)"
+            )
+
+        results: list[dict] = []
+        errors: list[dict] = []
+        for index, item in enumerate(items):
+            if not isinstance(item, dict):
+                errors.append({"index": index, "item": item, "error": "not an object"})
+                continue
+            unknown = [k for k in item if k not in ENTRY_KEYS]
+            if unknown:
+                errors.append(
+                    {
+                        "index": index,
+                        "item": item,
+                        "error": f"unknown keys {unknown} — use {', '.join(ENTRY_KEYS)}",
+                    }
+                )
+                continue
+            try:
+                results.append(
+                    await _add_entry(
+                        client,
+                        item.get("date"),
+                        item.get("entry_type") or entry_type,
+                        item.get("recipe_slug"),
+                        item.get("title"),
+                        item.get("note"),
+                    )
+                )
+            except (ToolError, TypeError, ValueError) as exc:
+                # Writes are never retried, so a failure is reported per entry
+                # and the entries already written stay visible in results.
+                errors.append({"index": index, "item": item, "error": str(exc)})
+
+        return {"items": results, "count": len(results), "errors": errors, "failed": len(errors)}
 
     @mcp.tool
     async def update_meal_plan_entry(

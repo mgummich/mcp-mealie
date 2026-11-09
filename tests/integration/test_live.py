@@ -220,6 +220,65 @@ async def test_shopping_list_roundtrip(client):
         await client.call_tool("delete_recipe", {"slug": slug, "confirm_slug": slug})
 
 
+async def test_batch_shopping_and_meal_plan_writes(client):
+    slugs = [
+        data(await client.call_tool("create_recipe", {"name": name}))["slug"]
+        for name in ("Batch Test Stew", "Batch Test Salad")
+    ]
+    book = await client.call_tool("create_shopping_list", {"name": "Batch Test List"})
+    list_id = data(book)["list_id"]
+    entry_ids: list = []
+    try:
+        await client.call_tool("update_recipe", {"slug": slugs[0], "ingredients": ["1 onion"]})
+        await client.call_tool("update_recipe", {"slug": slugs[1], "ingredients": ["2 carrots"]})
+
+        # Both recipes in one call, through the non-deprecated list endpoint.
+        filled = await client.call_tool(
+            "add_recipe_to_shopping_list", {"list_id": list_id, "recipe_slug": slugs}
+        )
+        assert data(filled)["count"] >= 2
+
+        added = await client.call_tool(
+            "add_shopping_item", {"list_id": list_id, "item": ["2 lemons", "1 bunch cilantro"]}
+        )
+        assert data(added)["count"] == 2
+        assert {i["item"] for i in data(added)["items"]} == {"2 lemons", "1 bunch cilantro"}
+
+        ids = [i["item_id"] for i in data(added)["items"]]
+        deleted = await client.call_tool("delete_shopping_item", {"item_id": ids})
+        assert data(deleted)["count"] == 2
+        remaining = data(await client.call_tool("get_shopping_list", {"list_id": list_id}))
+        assert not {i["item_id"] for i in remaining["items"]} & set(ids)
+
+        today = date.today()  # noqa: DTZ011
+        planned = await client.call_tool(
+            "add_meal_plan_entry",
+            {
+                "items": [
+                    {"date": today.isoformat(), "recipe_slug": slugs[0]},
+                    {
+                        "date": (today + timedelta(days=1)).isoformat(),
+                        "recipe_slug": slugs[1],
+                        "entry_type": "lunch",
+                    },
+                    {"date": today.isoformat(), "recipe_slug": "no-such-recipe-batch"},
+                ]
+            },
+        )
+        entry_ids = [e["entry_id"] for e in data(planned)["items"]]
+        assert data(planned)["count"] == 2
+        assert [e["index"] for e in data(planned)["errors"]] == [2]
+        assert [e["meal"] for e in data(planned)["items"]] == ["dinner", "lunch"]
+    finally:
+        for entry_id in entry_ids:
+            await client.call_tool("delete_meal_plan_entry", {"entry_id": entry_id})
+        await client.call_tool(
+            "delete_shopping_list", {"list_id": list_id, "confirm_list_id": list_id}
+        )
+        for slug in slugs:
+            await client.call_tool("delete_recipe", {"slug": slug, "confirm_slug": slug})
+
+
 async def test_cooking_history_roundtrip(client):
     created = await client.call_tool("create_recipe", {"name": "History Test Curry"})
     slug = data(created)["slug"]
