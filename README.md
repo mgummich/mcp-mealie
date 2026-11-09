@@ -41,7 +41,7 @@ No clone or virtualenv needed — `uvx` builds it straight from the tag.
 Create the token in Mealie under **Profile → API Tokens**.
 
 > [!NOTE]
-> Not on PyPI yet, so installs come from git — `uvx mcp-mealie` on its own
+> Not on PyPI, so installs come from git — `uvx mcp-mealie` on its own
 > will not resolve. Keep the `@v0.4.0` pin: without a tag you get whatever
 > `main` holds the day `uv` resolves it.
 
