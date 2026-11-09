@@ -50,6 +50,30 @@ async def test_401_names_the_token_variable(client):
 
 
 @respx.mock
+async def test_403_blames_a_permission_not_the_token(client):
+    # A working token whose user lacks e.g. can_organize; "check the token"
+    # would send people after the wrong thing.
+    respx.post(f"{BASE}/api/units").mock(
+        return_value=httpx.Response(
+            403,
+            json={
+                "detail": {
+                    "message": "You do not have permission to perform this action",
+                    "error": True,
+                }
+            },
+        )
+    )
+
+    with pytest.raises(ToolError) as caught:
+        await client.request("POST", "/api/units", json={"name": "pinch"})
+
+    assert "You do not have permission" in str(caught.value)
+    assert "lacks the permission" in str(caught.value)
+    assert "authentication failed" not in str(caught.value)
+
+
+@respx.mock
 async def test_404_uses_the_caller_supplied_message(client):
     respx.get(f"{BASE}/api/recipes/nope").mock(return_value=httpx.Response(404))
 

@@ -558,7 +558,9 @@ async def test_taxonomy_merge_is_refused_where_mealie_has_no_endpoint():
 @respx.mock
 async def test_update_recipe_writes_notes_and_rating():
     respx.get(f"{BASE}/api/recipes/roast").mock(
-        return_value=httpx.Response(200, json={"id": "r1", "slug": "roast", "name": "Roast"})
+        return_value=httpx.Response(
+            200, json={"id": "r1", "slug": "roast", "name": "Roast", "lastMade": None}
+        )
     )
     patch = respx.patch(f"{BASE}/api/recipes/roast").mock(return_value=httpx.Response(200, json={}))
 
@@ -620,6 +622,7 @@ async def test_import_flags_a_scrape_that_found_nothing():
                 "name": "Tomatoes",
                 "recipeIngredient": [{"note": "Could not detect ingredients"}],
                 "recipeInstructions": [{"text": "Could not detect instructions"}],
+                "lastMade": None,
             },
         )
     )
@@ -1830,3 +1833,281 @@ async def test_delete_recipe_comment():
         result = await client.call_tool("delete_recipe_comment", {"comment_id": "c1"})
 
     assert data(result) == {"deleted": "c1"}
+
+
+# ------------------------------------------------------- Mealie 3.29 and 3.30
+
+
+@respx.mock
+async def test_get_recipe_reads_last_made_from_the_household_on_3_30():
+    # 3.30 dropped lastMade from the recipe body; the household view kept it.
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"slug": "roast", "name": "Roast"})
+    )
+    respx.get(f"{BASE}/api/households/self/recipes/roast").mock(
+        return_value=httpx.Response(
+            200, json={"recipeId": "r1", "lastMade": "2026-01-02T00:00:00Z"}
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("get_recipe", {"slug": "roast"})
+
+    assert data(result)["last_made"] == "2026-01-02T00:00:00Z"
+
+
+@respx.mock
+async def test_get_recipe_still_answers_when_the_household_view_fails():
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"slug": "roast", "name": "Roast"})
+    )
+    respx.get(f"{BASE}/api/households/self/recipes/roast").mock(return_value=httpx.Response(404))
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("get_recipe", {"slug": "roast"})
+
+    assert data(result) == {"name": "Roast", "slug": "roast"}
+
+
+@respx.mock
+async def test_get_recipe_skips_the_household_view_when_last_made_is_not_wanted():
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"slug": "roast", "name": "Roast"})
+    )
+    household = respx.get(f"{BASE}/api/households/self/recipes/roast")
+
+    async with Client(build_server(config())) as client:
+        await client.call_tool("get_recipe", {"slug": "roast", "fields": ["name"]})
+
+    assert not household.called
+
+
+@respx.mock
+async def test_update_recipe_writes_cook_time_where_mealie_shows_it_and_clears_old_seconds():
+    # Mealie's "Cook Time" is performTime, and 3.29+ prefers a stored duration
+    # over text, so new text next to the old seconds would never show.
+    respx.get(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(
+            200,
+            json={"slug": "roast", "prepTimeSeconds": 600, "performTimeSeconds": 1800},
+        )
+    )
+    patch = respx.patch(f"{BASE}/api/recipes/roast").mock(
+        return_value=httpx.Response(200, json={"slug": "roast"})
+    )
+
+    async with Client(build_server(config())) as client:
+        await client.call_tool(
+            "update_recipe", {"slug": "roast", "prep_time": "15 minutes", "cook_time": "1 hour"}
+        )
+
+    assert json.loads(patch.calls.last.request.content) == {
+        "prepTime": "15 minutes",
+        "prepTimeSeconds": None,
+        "performTime": "1 hour",
+        "performTimeSeconds": None,
+    }
+
+
+@respx.mock
+async def test_search_max_total_minutes_filters_on_seconds_quickest_first():
+    search = respx.get(f"{BASE}/api/recipes").mock(
+        return_value=httpx.Response(200, json={"items": [], "total": 0})
+    )
+
+    async with Client(build_server(config())) as client:
+        await client.call_tool("search_recipes", {"max_total_minutes": 30})
+
+    params = search.calls.last.request.url.params
+    assert params["queryFilter"] == "totalTimeSeconds <= 1800"
+    assert params["orderBy"] == "totalTimeSeconds"
+    assert params["orderDirection"] == "asc"
+
+
+@respx.mock
+async def test_search_max_total_minutes_names_the_version_it_needs():
+    respx.get(f"{BASE}/api/recipes").mock(
+        return_value=httpx.Response(
+            400, json={"detail": "invalid attribute string: 'total_time_seconds' does not exist"}
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match=r"needs Mealie 3\.29"):
+            await client.call_tool("search_recipes", {"max_total_minutes": 30})
+
+
+@respx.mock
+async def test_get_meal_plan_asks_for_week_long_entries():
+    plan = respx.get(f"{BASE}/api/households/mealplans").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "id": 1,
+                        "date": "2026-11-09",
+                        "endDate": "2026-11-15",
+                        "entryType": "dinner",
+                        "title": "Lasagna",
+                    }
+                ],
+                "total": 1,
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "get_meal_plan", {"start_date": "2026-11-09", "end_date": "2026-11-15"}
+        )
+
+    assert plan.calls.last.request.url.params["include_week_entries"] == "true"
+    assert data(result)["items"][0]["end_date"] == "2026-11-15"
+
+
+@respx.mock
+async def test_add_meal_plan_entry_sends_end_date_and_scale():
+    post = respx.post(f"{BASE}/api/households/mealplans").mock(
+        return_value=httpx.Response(
+            201,
+            json={
+                "id": 1,
+                "date": "2026-11-09",
+                "endDate": "2026-11-15",
+                "entryType": "dinner",
+                "title": "Lasagna",
+                "recipeScale": 2.0,
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "add_meal_plan_entry",
+            {"date": "2026-11-09", "end_date": "2026-11-15", "title": "Lasagna", "scale": 2},
+        )
+
+    assert json.loads(post.calls.last.request.content) == {
+        "date": "2026-11-09",
+        "entryType": "dinner",
+        "endDate": "2026-11-15",
+        "recipeScale": 2,
+        "title": "Lasagna",
+    }
+    assert data(result)["scale"] == 2.0
+
+
+async def test_add_meal_plan_entry_refuses_a_non_positive_scale():
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match="scale must be above 0"):
+            await client.call_tool(
+                "add_meal_plan_entry", {"date": "2026-11-09", "title": "x", "scale": 0}
+            )
+
+
+@respx.mock
+async def test_update_meal_plan_entry_sets_the_scale():
+    respx.get(f"{BASE}/api/households/mealplans/e1").mock(
+        return_value=httpx.Response(
+            200, json={"id": "e1", "date": "2026-11-09", "entryType": "dinner", "title": "x"}
+        )
+    )
+    put = respx.put(f"{BASE}/api/households/mealplans/e1").mock(
+        return_value=httpx.Response(200, json={"id": "e1", "date": "2026-11-09"})
+    )
+
+    async with Client(build_server(config())) as client:
+        await client.call_tool("update_meal_plan_entry", {"entry_id": "e1", "scale": 1.5})
+
+    assert json.loads(put.calls.last.request.content)["recipeScale"] == 1.5
+
+
+@respx.mock
+async def test_taxonomy_merge_posts_tools_with_their_id_keys():
+    merge = respx.post(f"{BASE}/api/organizers/tools/merge").mock(
+        return_value=httpx.Response(200, json={"id": "k2", "name": "Skillet", "slug": "skillet"})
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool(
+            "manage_taxonomy",
+            {"resource": "tools", "action": "merge", "item_id": "k1", "merge_into": "k2"},
+        )
+
+    assert merge.calls.last.request.read() == b'{"fromId":"k1","toId":"k2"}'
+    assert data(result)["into"] == "k2"
+
+
+@respx.mock
+async def test_taxonomy_merge_of_labels_names_the_version_it_needs():
+    # Before 3.30 the path only matches /labels/{item_id}, which has no POST.
+    respx.post(f"{BASE}/api/groups/labels/merge").mock(
+        return_value=httpx.Response(405, json={"detail": "Method Not Allowed"})
+    )
+
+    async with Client(build_server(config())) as client:
+        with pytest.raises(ToolError, match=r"needs Mealie 3\.30"):
+            await client.call_tool(
+                "manage_taxonomy",
+                {"resource": "labels", "action": "merge", "item_id": "l1", "merge_into": "l2"},
+            )
+
+
+@respx.mock
+async def test_library_stats_uses_mealies_own_counts_instead_of_sweeping():
+    recipes = respx.get(f"{BASE}/api/recipes")
+    respx.get(f"{BASE}/api/foods").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {"id": "f1", "name": "onion", "recipeCount": 3},
+                    {"id": "f2", "name": "saffron", "recipeCount": 0},
+                ],
+                "total": 2,
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("library_stats", {"resource": "foods"})
+
+    assert not recipes.called
+    assert data(result)["items"] == [
+        {"id": "f1", "name": "onion", "recipe_count": 3},
+        {"id": "f2", "name": "saffron", "recipe_count": 0},
+    ]
+    assert data(result)["sweep_complete"] is True
+    assert "recipes_scanned" not in data(result)
+
+
+@respx.mock
+async def test_get_todays_meals_includes_week_long_entries():
+    # /today leaves 3.30's week entries out; a one-day range with the flag
+    # keeps them, and pins the date to the one the tool echoes.
+    plan = respx.get(f"{BASE}/api/households/mealplans").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "id": 1,
+                        "date": "2026-11-09",
+                        "endDate": "2026-11-15",
+                        "entryType": "dinner",
+                        "title": "Lasagna",
+                    }
+                ],
+                "total": 1,
+            },
+        )
+    )
+
+    async with Client(build_server(config())) as client:
+        result = await client.call_tool("get_todays_meals", {})
+
+    params = plan.calls.last.request.url.params
+    assert params["start_date"] == params["end_date"] == data(result)["date"]
+    assert params["include_week_entries"] == "true"
+    assert data(result)["items"][0]["end_date"] == "2026-11-15"

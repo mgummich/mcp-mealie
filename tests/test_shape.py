@@ -139,6 +139,58 @@ def test_meal_plan_entry_handles_a_free_text_meal():
     assert "recipe_slug" not in entry
 
 
+def test_meal_plan_entry_carries_a_week_span_and_a_non_default_scale():
+    entry = shape.meal_plan_entry(
+        {
+            "id": "1",
+            "date": "2026-11-09",
+            "endDate": "2026-11-15",
+            "entryType": "dinner",
+            "title": "Lasagna",
+            "recipeScale": 2.0,
+        }
+    )
+
+    assert entry["end_date"] == "2026-11-15"
+    assert entry["scale"] == 2.0
+
+
+def test_meal_plan_entry_hides_the_default_scale():
+    entry = shape.meal_plan_entry(
+        {"id": "1", "date": "2026-11-09", "entryType": "dinner", "title": "x", "recipeScale": 1.0}
+    )
+
+    assert "scale" not in entry
+
+
+def test_detail_reads_times_mealie_moved_to_seconds(recipe):
+    # Mealie 3.29 moved parseable times into *Seconds and cleared the text.
+    moved = {
+        **recipe,
+        "prepTime": None,
+        "prepTimeSeconds": 600,
+        "cookTime": None,
+        "performTime": None,
+        "performTimeSeconds": 5400,
+        "totalTime": None,
+        "totalTimeSeconds": 3600,
+    }
+
+    detail = shape.recipe_detail(moved)
+
+    assert detail["prep_time"] == "10 minutes"
+    assert detail["cook_time"] == "1 hour 30 minutes"
+    assert detail["total_time"] == "1 hour"
+
+
+def test_detail_prefers_text_times_and_reads_cook_time_from_perform_time(recipe):
+    detail = shape.recipe_detail(
+        {**recipe, "cookTime": None, "performTime": "45 min", "performTimeSeconds": 60}
+    )
+
+    assert detail["cook_time"] == "45 min"
+
+
 def test_cookbook_exposes_the_filter():
     book = shape.cookbook(load("cookbook"))
 

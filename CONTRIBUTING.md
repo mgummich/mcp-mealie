@@ -64,12 +64,13 @@ commit hook runs on the files you touched. It does **not** run the tests.
 ```bash
 uv run --extra dev pre-commit run --all-files
 uv run --extra dev pytest
-./scripts/integration.sh                            # newest stable Mealie
-MEALIE_TEST_VERSION=v2.8.0 ./scripts/integration.sh # oldest supported
+./scripts/integration.sh                             # newest stable Mealie
+MEALIE_TEST_VERSION=v3.25.1 ./scripts/integration.sh # last before 3.29's reshapes
+MEALIE_TEST_VERSION=v2.8.0 ./scripts/integration.sh  # oldest supported
 ```
 
 CI runs the same checks: the fast gate is `ci.yml`'s `unit` job, across Python
-3.11-3.13; the two integration commands are its `integration` matrix.
+3.11-3.13; the three integration commands are its `integration` matrix.
 
 `ruff format .` (no `--check`) is the one that rewrites files.
 

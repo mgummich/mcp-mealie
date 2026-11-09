@@ -43,10 +43,13 @@ TAXONOMY_PATHS = {
     "tools": "/api/organizers/tools",
 }
 
-#: Resources with a server-side merge endpoint, and the body keys it wants.
+#: Resources with a server-side merge endpoint: its method and the body keys it
+#: wants. Tools and labels gained theirs in Mealie 3.30.
 MERGE_KEYS = {
-    "foods": ("fromFood", "toFood"),
-    "units": ("fromUnit", "toUnit"),
+    "foods": ("PUT", "fromFood", "toFood"),
+    "units": ("PUT", "fromUnit", "toUnit"),
+    "tools": ("POST", "fromId", "toId"),
+    "labels": ("POST", "fromId", "toId"),
 }
 
 #: POSTs that change nothing, so they must not invalidate the recipe cache.
@@ -238,8 +241,17 @@ class MealieClient:
     def _handle(self, response: httpx.Response, not_found: str | None) -> Any:
         status = response.status_code
 
-        if status in (401, 403):
+        if status == 401:
             raise MealieError("authentication failed — check MEALIE_API_TOKEN", status)
+        if status == 403:
+            # The token works; its user lacks a permission, e.g. Mealie 3.30's
+            # can_organize for units, tools, and labels.
+            raise MealieError(
+                f"Mealie refused: {_error_detail(response)} — the user behind "
+                "MEALIE_API_TOKEN lacks the permission; an admin can grant it in "
+                "Mealie's user settings",
+                status,
+            )
         if status == 404:
             raise MealieError(not_found or "not found", status)
         if status == 422:

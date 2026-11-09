@@ -78,6 +78,7 @@ uv run --extra dev pytest
 uv run --extra dev pre-commit run --all-files   # lint, format, mypy, file hygiene
 uv run --extra dev pytest
 ./scripts/integration.sh
+MEALIE_TEST_VERSION=v3.25.1 ./scripts/integration.sh
 MEALIE_TEST_VERSION=v2.8.0 ./scripts/integration.sh
 ```
 
@@ -151,9 +152,10 @@ Which document to update for which change: the table in
 ## Compatibility
 
 Mealie 2.0+; the startup probe refuses 1.x. CI runs the integration suite
-against 2.8.0 and 3.25.1, and those two versions are the entire basis of the
-claim — do not widen it in prose without widening the matrix. Mealie 3.x only:
-`import_recipe_from_images` and the `snack`/`drink`/`dessert` entry types.
+against 2.8.0, 3.25.1, and 3.30.0, and those three versions are the entire
+basis of the claim — do not widen it in prose without widening the matrix.
+Mealie 3.x only: `import_recipe_from_images` and the `snack`/`drink`/`dessert`
+entry types. 3.29+/3.30+ features are listed in `docs/ARCHITECTURE.md`.
 Python 3.11-3.13.
 
 ## Definition of done

@@ -19,8 +19,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reported separately, one bad entry does not stop the rest. Lists are capped
   at 100 items and 62 plan entries per call. Passing a single value behaves
   exactly as before.
+- Mealie 3.29 and 3.30 features. `search_recipes(max_total_minutes=…)` finds
+  recipes done within that time, quickest first (3.29+).
+  `add_meal_plan_entry` takes `end_date` for a "sometime this week" entry
+  (3.30+) and `scale` for servings (3.29+); `update_meal_plan_entry` takes
+  `scale`. `manage_taxonomy` merges tools and labels on 3.30+.
+  `library_stats` for foods and tools uses Mealie 3.30's own recipe counts
+  instead of reading every recipe.
+
+### Fixed
+
+- On Mealie 3.30, `get_recipe` lost `last_made`: Mealie moved it off the
+  recipe. It is now read from the household's view of the recipe when the
+  recipe no longer carries it.
+- On Mealie 3.29+, `get_recipe` and `search_recipes` showed no prep, cook, or
+  total time for recipes whose times Mealie had converted to durations. They
+  now fall back to those durations.
+- `get_meal_plan` and `get_todays_meals` showed no week-long entries on Mealie
+  3.30, which hides them unless asked. `get_todays_meals` now asks for the
+  host's date, the one it already echoed back, rather than Mealie's.
+- A 403 read "authentication failed — check MEALIE_API_TOKEN", though the
+  token worked and its user lacked a permission (on Mealie 3.30, *can
+  organize* for units, tools, and labels). It now says that, with Mealie's
+  own reason.
+- `create_recipe` and `update_recipe` wrote `cook_time` to Mealie's legacy
+  `cookTime` field, which Mealie's UI never showed and its next release drops.
+  It now goes to `performTime`, the field Mealie labels "Cook Time", and
+  `update_recipe` clears a stale stored duration when it writes a new time.
 
 ### Changed
+
+- CI runs the integration suite against Mealie 3.30.0 as well as 2.8.0 and
+  3.25.1, and `scripts/integration.sh` defaults to 3.30.0.
 
 - `add_recipe_to_shopping_list` uses `POST /shopping/lists/{id}/recipe`
   instead of `/recipe/{recipe_id}`, which Mealie marks deprecated. Both exist

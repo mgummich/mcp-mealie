@@ -23,7 +23,7 @@ MAX_RANDOM_DAYS = 14
 # Mealie has no bulk create for plan entries, so a batch is one POST per item;
 # the cap bounds a runaway call, not a normal month of dinners.
 MAX_BATCH_ENTRIES = 62
-ENTRY_KEYS = ("date", "entry_type", "recipe_slug", "title", "note")
+ENTRY_KEYS = ("date", "end_date", "entry_type", "recipe_slug", "title", "note", "scale")
 
 
 def _as_date(value: str, field: str) -> date_type:
@@ -48,6 +48,12 @@ def _check_entry_type(entry_type: str) -> str:
     return entry_type
 
 
+def _check_scale(scale: float) -> float:
+    if scale <= 0:
+        raise ToolError(f"scale must be above 0 (got {scale!r})")
+    return scale
+
+
 async def _add_entry(
     client: MealieClient,
     date: str | None,
@@ -55,6 +61,8 @@ async def _add_entry(
     recipe_slug: str | None,
     title: str | None,
     note: str | None,
+    end_date: str | None = None,
+    scale: float | None = None,
 ) -> dict:
     if not date:
         raise ToolError("pass date")
@@ -65,6 +73,10 @@ async def _add_entry(
         "date": _as_date(date, "date").isoformat(),
         "entryType": _check_entry_type(entry_type),
     }
+    if end_date:
+        payload["endDate"] = _as_date(end_date, "end_date").isoformat()
+    if scale is not None:
+        payload["recipeScale"] = _check_scale(scale)
     if recipe_slug:
         # CreatePlanEntry wants a UUID, not a slug; the client caches these
         # because planning a week re-resolves the same recipes repeatedly.
@@ -97,6 +109,9 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             params={
                 "start_date": start.isoformat(),
                 "end_date": end.isoformat(),
+                # Mealie 3.30 hides week-long entries unless asked; older
+                # versions ignore the flag.
+                "include_week_entries": True,
                 "page": page,
                 "perPage": 200,
             },
@@ -110,9 +125,22 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         The date is resolved on the machine running this server, and echoed
         back so a timezone mismatch is visible rather than silent.
         """
-        result = await get_client().request("GET", "/api/households/mealplans/today")
-        entries = [shape.meal_plan_entry(e) for e in result or []]
-        return {"date": _today(), "items": entries, "count": len(entries)}
+        today = _today()
+        # A one-day range rather than /today: that endpoint leaves out Mealie
+        # 3.30's week-long entries, and a week's lasagna is still today's
+        # option. It also makes the date the one echoed back.
+        result = await get_client().request(
+            "GET",
+            "/api/households/mealplans",
+            params={
+                "start_date": today,
+                "end_date": today,
+                "include_week_entries": True,
+                "perPage": 200,
+            },
+        )
+        entries = [shape.meal_plan_entry(e) for e in (result or {}).get("items") or []]
+        return {"date": today, "items": entries, "count": len(entries)}
 
     if read_only:
         return
@@ -124,16 +152,21 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         recipe_slug: str | None = None,
         title: str | None = None,
         note: str | None = None,
+        end_date: str | None = None,
+        scale: float | None = None,
         items: list[dict[str, Any]] | None = None,
     ) -> dict:
         """Plan meals: one with the fields below, or many with items.
 
         Pass recipe_slug to link an existing recipe, or title for a free-text
         entry like "leftovers". entry_type is breakfast, lunch, dinner, side,
-        snack, drink, or dessert.
+        snack, drink, or dessert. end_date makes it "sometime between date and
+        end_date" rather than one day; scale multiplies the recipe's servings.
+        Both need Mealie 3.30 / 3.29; older versions ignore them.
 
         items plans a whole week in one call: a list of per-entry dicts using
-        the same keys — date, entry_type, recipe_slug, title, note. An item
+        the same keys — date, end_date, entry_type, recipe_slug, title, note,
+        scale. An item
         without entry_type uses the call's entry_type. The reply carries
         results and errors separately; one bad entry does not stop the rest.
         Example: items=[{"date": "2026-10-12", "recipe_slug": "pad-thai"},
@@ -141,7 +174,9 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         """
         client = get_client()
         if items is None:
-            return await _add_entry(client, date, entry_type, recipe_slug, title, note)
+            return await _add_entry(
+                client, date, entry_type, recipe_slug, title, note, end_date, scale
+            )
 
         if not items:
             raise ToolError("items is empty — nothing to do")
@@ -150,7 +185,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
                 f"items has {len(items)} entries; the cap is {MAX_BATCH_ENTRIES} per call. "
                 "Split it across calls."
             )
-        if any(v is not None for v in (date, recipe_slug, title, note)):
+        if any(v is not None for v in (date, recipe_slug, title, note, end_date, scale)):
             raise ToolError(
                 "pass the entry fields inside each item, not alongside items "
                 "(entry_type alone is allowed, as the default)"
@@ -181,6 +216,8 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
                         item.get("recipe_slug"),
                         item.get("title"),
                         item.get("note"),
+                        item.get("end_date"),
+                        item.get("scale"),
                     )
                 )
             except (ToolError, TypeError, ValueError) as exc:
@@ -198,12 +235,13 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         recipe_slug: str | None = None,
         title: str | None = None,
         note: str | None = None,
+        scale: float | None = None,
     ) -> dict:
         """Change one planned meal by its entry_id (from get_meal_plan).
 
         Every field is optional; anything left out keeps its current value.
         """
-        changes = (date, entry_type, recipe_slug, title, note)
+        changes = (date, entry_type, recipe_slug, title, note, scale)
         if all(change is None for change in changes):
             raise ToolError("pass at least one field to change")
 
@@ -225,6 +263,8 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             entry["title"] = title
         if note is not None:
             entry["text"] = note
+        if scale is not None:
+            entry["recipeScale"] = _check_scale(scale)
 
         updated = await client.request(
             "PUT",

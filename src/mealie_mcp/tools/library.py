@@ -87,6 +87,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         handful of requests. foods and units are not in that payload, so they
         need one request per recipe; that sweep is slower and honors
         max_recipes. A recipe using the same food twice still counts once.
+        On Mealie 3.30+ foods and tools use Mealie's own counts — no sweep.
         """
         if resource not in STATS_RESOURCES:
             raise ToolError(
@@ -94,15 +95,23 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             )
 
         client = get_client()
-        recipes, total = await client.all_recipes(max_recipes=max_recipes)
+        items = await client.taxonomy_items(resource)
 
         counts: Counter[str] = Counter()
         failed = 0
-        if resource in SUMMARY_KEYS:
+        recipes: list[dict] = []
+        total = 0
+        # Mealie 3.30 counts foods and tools itself, which beats a sweep.
+        swept = not (items and all(isinstance(i.get("recipeCount"), int) for i in items))
+        if not swept:
+            counts.update({i["id"]: i["recipeCount"] for i in items if i.get("id")})
+        elif resource in SUMMARY_KEYS:
+            recipes, total = await client.all_recipes(max_recipes=max_recipes)
             key = SUMMARY_KEYS[resource]
             for recipe in recipes:
                 counts.update({i["id"] for i in recipe.get(key) or [] if i.get("id")})
         else:
+            recipes, total = await client.all_recipes(max_recipes=max_recipes)
             singular = resource[:-1]  # foods -> food, units -> unit
             slugs = [recipe["slug"] for recipe in recipes if recipe.get("slug")]
             for detail in await client.recipe_details(slugs):
@@ -117,9 +126,7 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
                     }
                 )
 
-        known = {
-            i["id"]: i.get("name") for i in await client.taxonomy_items(resource) if i.get("id")
-        }
+        known = {i["id"]: i.get("name") for i in items if i.get("id")}
 
         rows = [
             {"id": item_id, "name": name, "recipe_count": counts.get(item_id, 0)}
@@ -153,8 +160,9 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             "used": len(used),
             "unused": sum(1 for r in rows if not r["recipe_count"]),
             "sweep_complete": complete,
-            "recipes_scanned": len(recipes),
         }
+        if swept:
+            result["recipes_scanned"] = len(recipes)
         notes = []
         if len(used) > top:
             notes.append(f"showing the {top} most-used of {len(used)} — raise top for the rest")

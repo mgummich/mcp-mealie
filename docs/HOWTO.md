@@ -115,7 +115,8 @@ set one recipe's list exactly, use `update_recipe` with `replace_tags=True`.
 
 **Merge duplicate foods.** `manage_taxonomy("foods", "merge", item_id=<loser>,
 merge_into=<keeper>)` uses Mealie's own merge endpoint and repoints every
-recipe that used the loser. Deleting the duplicate instead strips it from
+recipe that used the loser. Units merge the same way, and on Mealie 3.30+ so
+do tools and labels. Deleting the duplicate instead strips it from
 those recipes — that is the difference worth confirming out loud before
 running it. A food or unit that is still on a shopping list cannot be deleted
 at all: Mealie answers 409 and the tool says to merge instead. Note that
@@ -173,6 +174,14 @@ days per call.
   re-attempted.
 - **An auth error on every tool is configuration**, not a transient failure.
   Same for "server is in read-only mode".
+- **"Lacks the permission" on taxonomy writes is the user, not the token.**
+  Mealie 3.30 needs *can organize* to create, change, merge, or delete units,
+  tools, and labels; an admin grants it in Mealie's user settings.
+- **Importing from your own network fails on Mealie 3.26+.** Mealie refuses
+  to fetch private addresses — a recipe server on your LAN or tailnet — for
+  imports, images, and webhooks. Allow the host or range on the Mealie side
+  with its `HTTP_ALLOW_LIST` variable (hostnames or CIDRs, e.g.
+  `HTTP_ALLOW_LIST=100.64.0.0/10` for Tailscale) and restart Mealie.
 
 ## 6. Add the workflows
 

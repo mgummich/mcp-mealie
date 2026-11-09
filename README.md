@@ -113,10 +113,15 @@ take precedence over the file.
 > [!NOTE]
 > Requires Mealie **2.0 or newer**. The server checks at startup and refuses to
 > run against 1.x, which has no `/api/households` endpoints. CI runs the
-> integration suite against **2.8.0 and 3.25.1** — the oldest release supported
-> and the newest stable one — on every push. Two things are 3.x only:
+> integration suite against **2.8.0, 3.25.1, and 3.30.0** — the oldest release
+> supported, the last before Mealie restructured recipe times and cooking
+> dates, and the newest stable one — on every push. Two things are 3.x only:
 > `import_recipe_from_images`, and the `snack`, `drink`, and `dessert` meal
 > plan entry types. On 2.x Mealie rejects those itself, with its own message.
+> Newer still: `search_recipes(max_total_minutes=…)` needs 3.29, and merging
+> tools or labels needs 3.30; both say so on older versions. Week-long meal
+> plan entries (`end_date`) and serving `scale` need 3.30 and 3.29; older
+> versions ignore them.
 
 ## 🧰 Tools
 
@@ -158,9 +163,9 @@ Once connected, ask in plain language — the agent picks the tools:
   derives one from the other — so the result hands back the new one.
 - **Taxonomy cleanup without a script.** `manage_taxonomy` lists (paged, with
   the total), creates, renames, updates, and deletes foods, units, labels,
-  tags, categories, and tools — and merges duplicate foods or units through
-  Mealie's own merge endpoints, so every recipe that used the loser is
-  repointed.
+  tags, categories, and tools — and merges duplicate foods or units (and, on
+  Mealie 3.30+, tools and labels) through Mealie's own merge endpoints, so
+  every recipe that used the loser is repointed.
 - **A random week is one call.** Mealie's random endpoint fills one day per
   request. `random_meal_plan` loops for you, capped at 14 days.
 - **Usage rollups in one call.** Mealie has no "how many recipes use this
