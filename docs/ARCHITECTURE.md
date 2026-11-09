@@ -269,5 +269,5 @@ in the loop. Full procedure: [RELEASING.md](RELEASING.md).
 | Technical truth | this file | — |
 | Anything under `docs/archive/` | nothing — historical only | — |
 
-`docs/REPO_AUDIT.md` is the dated record of the 2026-09-12 cleanup: how this
-map was arrived at, not a source of truth for anything in it.
+`docs/archive/2026-09-12-repo-audit.md` is the dated record of the 2026-09-12
+cleanup: how this map was arrived at, not a source of truth for anything in it.

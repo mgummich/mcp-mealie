@@ -1,11 +1,15 @@
 # Repository audit — 2026-09-12
 
+> **Historical.** A dated record of the 2026-09-12 documentation cleanup. Paths
+> and versions in it are as they were then; it lived at `docs/REPO_AUDIT.md`.
+> See [`../ARCHITECTURE.md`](../ARCHITECTURE.md) for the current doc map.
+
 A structure and documentation pass: what every file is for, where the same fact
 was written twice, and what was done about it. No runtime behavior was changed;
 `src/` is untouched.
 
 The code itself was audited separately on 2026-09-11
-([`archive/2026-09-11-audit.md`](archive/2026-09-11-audit.md)); those findings
+([`2026-09-11-audit.md`](2026-09-11-audit.md)); those findings
 were fixed in #30 and #31 and are not revisited here.
 
 ## Verdicts

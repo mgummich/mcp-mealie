@@ -26,7 +26,6 @@ exclude:
   - SECURITY.md
   - docs/ARCHITECTURE.md
   - docs/RELEASING.md
-  - docs/REPO_AUDIT.md
   - docs/archive/
 
 defaults:
