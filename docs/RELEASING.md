@@ -17,7 +17,7 @@ install tag in `README.md` and `docs/HOWTO.md`.
    fails if it is missing.
 3. Run the full gate from
    [`CONTRIBUTING.md`](../CONTRIBUTING.md#verify) — lint, types, unit tests,
-   and the integration suite against both supported Mealie versions.
+   and the integration suite against every Mealie version in the CI matrix.
 4. Commit, then tag and push:
 
    ```bash

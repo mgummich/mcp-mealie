@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-09
+
 ### Added
 
 - Batch writes for planning a week in a few calls instead of dozens.
@@ -18,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same shape `manage_taxonomy` uses: per-entry dicts, results and errors
   reported separately, one bad entry does not stop the rest. Lists are capped
   at 100 items and 62 plan entries per call. Passing a single value behaves
-  exactly as before.
+  exactly as before. Contributed by @jw-dickson in #38 — thank you!
 - Mealie 3.29 and 3.30 features. `search_recipes(max_total_minutes=…)` finds
   recipes done within that time, quickest first (3.29+).
   `add_meal_plan_entry` takes `end_date` for a "sometime this week" entry
@@ -346,6 +348,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multi-day random meal planning built into the tools.
 - Bundled agent skill at `skills/mealie/SKILL.md`.
 
+[0.5.0]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.5.0
 [0.4.0]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.4.0
 [0.3.1]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.3.1
 [0.3.0]: https://github.com/mgummich/mcp-mealie/releases/tag/v0.3.0
