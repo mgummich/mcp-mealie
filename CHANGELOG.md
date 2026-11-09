@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The documentation site is now built with MkDocs (Material) instead of
+  Jekyll, adds search, and publishes the developer docs (architecture,
+  contributing, releasing, security) alongside the README, howto, and
+  changelog. Existing `/howto` and `/changelog` addresses keep working.
+
 ## [0.5.0] - 2026-11-09
 
 ### Added

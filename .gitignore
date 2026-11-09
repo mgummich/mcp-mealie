@@ -25,7 +25,5 @@ dist/
 # Claude local settings
 .claude/settings.local.json
 
-# Jekyll (GitHub Pages)
-_site/
-.jekyll-cache/
-.jekyll-metadata
+# MkDocs (GitHub Pages)
+site/

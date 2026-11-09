@@ -129,6 +129,12 @@ is the end-user tutorial. **CHANGELOG.md** is history. Everything under
 
 Several of these are checked, not merely asked for: see `tests/test_docs.py`.
 
+The site at mgummich.github.io/mcp-mealie is MkDocs (`mkdocs.yml`), built from
+these same files — root docs stay where GitHub renders them, and
+`scripts/mkdocs_hooks.py` publishes them and fixes their links. A new page in
+`docs/` needs a `nav` entry. Preview with
+`uv run --extra docs mkdocs serve`; CI builds with `--strict`.
+
 ## Pull requests
 
 - Branch off `main`, keep the diff to one concern.
