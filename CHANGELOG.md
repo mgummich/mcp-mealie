@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `get_cookbook_recipes` caps `limit` at 100 per page, like `search_recipes`;
+  a large `limit` used to return a whole cookbook in one reply.
+- `manage_taxonomy`'s description said merge works for foods and units only;
+  it now says tools and labels merge too on Mealie 3.30+.
 - Recipe slugs and IDs containing a literal `/` are now rejected as single
   path segments. `get_recipe(slug="timeline/events")` used to reach Mealie's
   unfiltered timeline endpoint; every interpolated identifier is now checked
@@ -69,11 +73,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - CI runs the integration suite against Mealie 3.30.0 as well as 2.8.0 and
   3.25.1, and `scripts/integration.sh` defaults to 3.30.0.
-
+- Runs on fastmcp 4 and MCP Python SDK 2 (locked at fastmcp 4.1.6, mcp 2.3.0).
+  Tool names, arguments, and responses are unchanged. The declared minimum is
+  now `fastmcp>=4`, the only line that is tested.
 - `add_recipe_to_shopping_list` uses `POST /shopping/lists/{id}/recipe`
   instead of `/recipe/{recipe_id}`, which Mealie marks deprecated. Both exist
   from 2.8.0 on.
-
 - The release workflow wraps the changelog section in a generated install
   block and a changelog/diff/skill footer, so every release reads the same way
   without anyone writing the frame by hand. `docs/RELEASING.md` describes the
@@ -87,9 +92,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pinned client, resolution failures fail closed, and environment proxies are
   ignored so a proxy cannot bypass the address restriction.
 - Locked dependencies bumped past published advisories: authlib 1.9.1,
-  certifi 2026.10.19, dnspython 2.9.2, fastmcp 3.4.10, filelock 4.2.1,
-  joserfc 1.7.6, mcp 1.30.0, opentelemetry-api 1.45.1, pyjwt 2.15.0,
-  virtualenv 21.14.13.
+  certifi 2026.10.19, dnspython 2.9.2, filelock 4.2.1, joserfc 1.7.6,
+  opentelemetry-api 1.45.1, pyjwt 2.15.0, virtualenv 21.14.13. fastmcp and
+  mcp have since moved up a major version (see Changed).
 
 ## [0.4.0] - 2026-09-12
 

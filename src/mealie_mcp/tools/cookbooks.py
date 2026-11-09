@@ -100,7 +100,11 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
         """List the recipes a cookbook currently matches.
 
         `cookbook` is the cookbook's id or slug (from list_cookbooks).
+        limit is capped at 100 per page.
         """
+        page = max(page, 1)
+        # Same ceiling as search_recipes: Mealie would return the whole library.
+        limit = min(max(limit, 1), 100)
         result = await get_client().request(
             "GET",
             "/api/recipes",

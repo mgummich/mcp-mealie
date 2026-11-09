@@ -186,8 +186,8 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             there is more, the page to ask for next
           create — needs name; data may carry extra fields
           update — needs item_id; renames with name, and/or sets data
-          merge  — foods and units only: folds item_id into merge_into and
-            repoints every recipe that used it
+          merge  — foods, units; tools and labels on Mealie 3.30+: folds
+            item_id into merge_into and repoints every recipe that used it
           delete — needs item_id
 
         items batches any action except list: pass a list of per-item dicts

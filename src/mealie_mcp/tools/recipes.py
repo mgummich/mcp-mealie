@@ -233,15 +233,6 @@ async def _read_created_recipe(client: MealieClient, slug: str) -> dict:
         ) from exc
 
 
-async def _taxonomy_payload(
-    client: MealieClient, resource: str, names: list[str] | None
-) -> tuple[list[dict] | None, list[str]]:
-    if names is None:
-        return None, []
-    objects, created = await client.resolve_taxonomy(resource, names)
-    return objects, created
-
-
 def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
     @mcp.tool
     async def search_recipes(
@@ -450,14 +441,14 @@ def register(mcp: FastMCP, get_client: GetClient, read_only: bool) -> None:
             if instructions:
                 payload["recipeInstructions"] = _instruction_payload(instructions)
 
-            tag_objects, created_tags = await _taxonomy_payload(client, "tags", tags)
-            if tag_objects is not None:
-                payload["tags"] = tag_objects
-            category_objects, created_categories = await _taxonomy_payload(
-                client, "categories", categories
-            )
-            if category_objects is not None:
-                payload["recipeCategory"] = category_objects
+            created_tags: list[str] = []
+            created_categories: list[str] = []
+            if tags is not None:
+                payload["tags"], created_tags = await client.resolve_taxonomy("tags", tags)
+            if categories is not None:
+                payload["recipeCategory"], created_categories = await client.resolve_taxonomy(
+                    "categories", categories
+                )
 
             if payload:
                 await client.request(

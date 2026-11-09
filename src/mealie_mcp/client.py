@@ -113,19 +113,6 @@ def check_path(path: str) -> None:
         )
 
 
-class UnknownTaxonomyItem(ToolError):
-    """A taxonomy name Mealie does not have, when creation was refused.
-
-    Separate from operational failures (401, timeout, 5xx) so a search can
-    treat an unknown name as "no match" without swallowing a broken server.
-    """
-
-    def __init__(self, resource: str, name: str) -> None:
-        self.resource = resource
-        self.name = name
-        super().__init__(f"{resource[:-1]} {name!r} does not exist")
-
-
 class MealieError(ToolError):
     """A ToolError that remembers the HTTP status it came from.
 
@@ -230,7 +217,6 @@ class MealieClient:
         attempts = GET_RETRIES + 1 if method == "GET" else 1
         params = {k: v for k, v in (params or {}).items() if v is not None}
 
-        last_transport_error: Exception | None = None
         for attempt in range(attempts):
             try:
                 async with self._request_slots:
@@ -241,7 +227,6 @@ class MealieClient:
                 # Only GETs get here more than once; writes are never retried
                 # because Mealie has no idempotency key and a retried create
                 # would duplicate the recipe.
-                last_transport_error = exc
                 if attempt + 1 < attempts:
                     await asyncio.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
                     continue
@@ -259,9 +244,9 @@ class MealieClient:
                 self._details.clear()
             return self._handle(response, not_found)
 
-        raise ToolError(self._unreachable(last_transport_error))
+        raise AssertionError("unreachable: the last attempt always returns or raises")
 
-    def _unreachable(self, exc: Exception | None) -> str:
+    def _unreachable(self, exc: Exception) -> str:
         """Word a transport failure for whichever of the two causes it was.
 
         A timeout is not unreachability: Mealie is answering the socket but not
@@ -401,7 +386,7 @@ class MealieClient:
             key = name.casefold()
             if key not in known:
                 if not create_missing:
-                    raise UnknownTaxonomyItem(resource, name)
+                    raise ToolError(f"{resource[:-1]} {name!r} does not exist")
                 known[key] = await self.request("POST", path, json={"name": name})
                 created.append(name)
             resolved.append(writable(known[key]))

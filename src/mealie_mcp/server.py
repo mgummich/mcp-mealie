@@ -123,12 +123,7 @@ def build_server(config: Config) -> FastMCP:
     @asynccontextmanager
     async def lifespan(_server: FastMCP):
         global _client
-        _client = MealieClient(
-            config.url,
-            config.token,
-            verify_ssl=config.verify_ssl,
-            max_concurrency=config.max_concurrency,
-        )
+        _client = _make_client(config)
         try:
             # main() already probed before the transport started; no need again.
             yield
@@ -172,13 +167,17 @@ def main() -> None:
     build_server(config).run()
 
 
-async def _verify(config: Config) -> None:
-    client = MealieClient(
+def _make_client(config: Config) -> MealieClient:
+    return MealieClient(
         config.url,
         config.token,
         verify_ssl=config.verify_ssl,
         max_concurrency=config.max_concurrency,
     )
+
+
+async def _verify(config: Config) -> None:
+    client = _make_client(config)
     try:
         version, username = await probe(client)
         log.info("connected to Mealie %s as %s", version, username)
