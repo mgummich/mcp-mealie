@@ -154,7 +154,7 @@ Which document to update for which change: the table in
 ## Compatibility
 
 Mealie 2.0+; the startup probe refuses 1.x. CI runs the integration suite
-against 2.8.0, 3.25.1, and 3.30.0, and those three versions are the entire
+against 2.8.0, 3.25.1, and 3.31.0, and those three versions are the entire
 basis of the claim — do not widen it in prose without widening the matrix.
 Mealie 3.x only: `import_recipe_from_images` and the `snack`/`drink`/`dessert`
 entry types. 3.29+/3.30+ features are listed in `docs/ARCHITECTURE.md`.

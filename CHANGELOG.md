@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Jekyll, adds search, and publishes the developer docs (architecture,
   contributing, releasing, security) alongside the README, howto, and
   changelog. Existing `/howto` and `/changelog` addresses keep working.
+- CI runs the integration suite against Mealie 3.31.0 instead of 3.30.0 as the
+  newest stable release, and `scripts/integration.sh` defaults to 3.31.0.
+  Mealie 3.31 no longer returns `cookTime`; `cook_time` already reads and
+  writes `performTime`, so no tool changes.
 
 ## [0.5.0] - 2026-11-09
 

@@ -113,7 +113,7 @@ take precedence over the file.
 > [!NOTE]
 > Requires Mealie **2.0 or newer**. The server checks at startup and refuses to
 > run against 1.x, which has no `/api/households` endpoints. CI runs the
-> integration suite against **2.8.0, 3.25.1, and 3.30.0** — the oldest release
+> integration suite against **2.8.0, 3.25.1, and 3.31.0** — the oldest release
 > supported, the last before Mealie restructured recipe times and cooking
 > dates, and the newest stable one — on every push. Two things are 3.x only:
 > `import_recipe_from_images`, and the `snack`, `drink`, and `dessert` meal

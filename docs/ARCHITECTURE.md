@@ -214,7 +214,7 @@ removed from the environment.
 
 Mealie **2.0 or newer**. The startup probe refuses 1.x, which has no
 `/api/households` endpoints. CI runs the integration suite against **2.8.0**,
-**3.25.1**, and **3.30.0** on every push: the oldest supported, the last
+**3.25.1**, and **3.31.0** on every push: the oldest supported, the last
 before Mealie 3.29/3.30 moved recipe times to seconds and `lastMade` off the
 recipe, and the newest stable. Those three versions are the whole basis of the
 compatibility claim, and `tests/test_docs.py` checks that the README's claim
